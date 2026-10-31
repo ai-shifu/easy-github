@@ -1,4 +1,4 @@
 interface:
   display_name: "Easy GitHub"
-  short_description: "用自然语言管理 AI 改动与 GitHub 审查，让人专注方向与确认"
-  default_prompt: "用 $easy-github 管理这个项目的 AI 改动，准备隔离工作、交付和审查材料。"
+  short_description: "Manage AI code handoffs and GitHub reviews naturally"
+  default_prompt: "Use $easy-github to manage this project's AI changes, preparing isolated workspaces, deliveries, and review materials."

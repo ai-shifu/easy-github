@@ -1,95 +1,99 @@
 # Easy GitHub
 
-**用自然语言管理代码协作，让人专注方向和审核。**
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+**Manage code collaboration in natural language, so people can focus on direction and review.**
 
 A friendlier GitHub workflow for humans and AI coding tools.
 
-Easy GitHub 是一个面向多人、多 AI 协作的 Skill。代码由你选择的编程工具完成；它负责准备独立工作目录、固定交付版本、整理审查材料，并在改动无法直接组合时，把上下文交回编程工具修复。
+Easy GitHub is a Skill for teams working with multiple people and AI coding tools. Your chosen coding tools write the code. Easy GitHub prepares isolated workspaces, freezes deliveries, assembles review materials, and hands context back to those tools when changes need revisions before they can work together.
 
-**当前版本：0.1.2，原型阶段。** 本地工作流可用于本地 Git 项目；GitHub 写入目前只支持私有的 `newgit-integration-*` 测试仓库。它不会主动合并 `main`，也不会把 AI 审查当成人工批准。
+**Current version: 0.1.3, prototype.** The local workflow works with local Git projects. GitHub writes are currently limited to private `newgit-integration-*` test repositories. Easy GitHub never proactively merges into `main` or treats an AI review as human approval.
 
-## 快速安装
+## Quick installation
 
-需要 macOS 或 Linux、Python 3 和 Git。当前首次发布内容位于 `feat/initial-release` 分支，通过 PR 审查，尚未自动合并到 `main`。
+You need macOS or Linux, Python 3.11 or newer, and Git. Use a UTF-8 terminal and locale for non-ASCII paths and arguments. Clone the repository's default `main` branch:
 
 ```bash
-git clone --branch feat/initial-release https://github.com/ai-shifu/easy-github.git
+git clone https://github.com/ai-shifu/easy-github.git
 cd easy-github
 python3 scripts/install_skill.py --target codex
 ```
 
-然后在 Codex 中调用：
+Then invoke the Skill in Codex:
 
 ```text
-用 $easy-github 给这项工作准备一个独立空间，我用 Codex 来写。
+Use $easy-github to prepare an isolated workspace for this task. I'll use Codex to write the code.
 ```
 
-Claude Code 用户可使用 `--target claude` 安装，并用 `/easy-github` 调用。安装器不覆盖内容不同的已有 Skill；完全相同的安装重复执行不会重写文件。
+Claude Code users can install with `--target claude` and invoke `/easy-github`. The installer refuses to overwrite an existing Skill with different contents. Reinstalling identical contents does not rewrite files.
 
-[完整安装方法](docs/installation.md)包括自定义目录、安装包方式及安装核验。
+The [installation guide](docs/installation.md) covers custom directories, archive installation, and verification.
 
-## 怎么用
+## How to use it
 
-直接描述你想做的事：
+Describe what you want to do in your preferred language:
 
 ```text
-用 $easy-github 交付这份改动，整理给同事审查。
+Use $easy-github to hand off these changes and prepare them for a colleague to review.
 
-用 $easy-github 检查这两份改动能否一起使用。
-两份都还没收下；需要修改时，准备新目录，保留旧版本。
+Use $easy-github to check whether these two deliveries can work together.
+Neither has been accepted yet. If revisions are needed, prepare a new workspace and keep the old versions.
 
-用 $easy-github 把这版送到指定测试仓库审查，先不合并。
+Use $easy-github to send this version to the specified test repository for review. Do not merge it yet.
 ```
 
-Skill 会保留 Git / GitHub 的版本、差异和 PR 链接，帮助你理解当前状态。你不需要先手动安排分支或记住提交命令。
+The Skill keeps Git / GitHub versions, diffs, and PR links visible so you can understand the current state. You do not need to arrange branches manually or memorize commit commands first.
 
-完整过程见[使用示例](docs/examples.md)。
+See the [usage examples](docs/examples.md) for a complete walkthrough.
 
-## 现在能做什么
+## What it can do today
 
-| 能力 | 当前行为 |
+| Capability | Current behavior |
 |---|---|
-| 独立工作 | 为每项工作准备隔离目录，供不同编程工具接手 |
-| 固定交付 | 外部工具停写后，保存不可变的交付版本 |
-| 组合与冲突材料 | 检查两份改动，保留旧目录，给外部 AI 准备新修复目录和上下文 |
-| 审查与检查记录 | 将差异、检查结果和审查绑定到具体版本 |
-| 可选工具调用 | 调用已安装、已登录的 Codex、Claude Code 或 GitHub Copilot CLI |
-| 测试仓库 PR | 发布固定交付、创建或更新 PR、发表绑定版本的 AI `COMMENT` |
+| Isolated work | Prepare a separate workspace for each task and coding tool |
+| Frozen deliveries | Save an immutable delivery after external tools stop writing |
+| Combination checks and conflict context | Check two deliveries, preserve old workspaces, and prepare a new revision workspace and context for an external AI tool |
+| Review and check records | Bind diffs, checks, and reviews to a specific version |
+| Optional tool invocation | Run an installed, authenticated Codex, Claude Code, or GitHub Copilot CLI |
+| Test-repository PRs | Publish frozen deliveries, create or update PRs, and post AI `COMMENT` reviews bound to a version |
 
-Skill 的职责、命令和接入细节见 [SKILL.md](skills/easy-github/SKILL.md)。
+See [SKILL.md](skills/easy-github/SKILL.md) for responsibilities, commands, and integration details.
 
-## 当前边界
+## Current limits
 
-- **状态库是独立副本。** 初始化只导入源项目已提交的 HEAD，后续不自动同步源项目或远端。未提交改动不会自动进入新工作。
-- **本地“收下”只更新状态库。** 它不会更新原项目或 GitHub；组合预览不能直接收下。
-- **GitHub 适配器仍限实验。** 目标必须是 `github.com` 上私有的 `newgit-integration-*` 仓库，目标基线需预先存在。它不创建仓库，不提供 merge 或 `APPROVE`。本项目本身公开开源。
-- **人仍做决定。** `ready` 表示可审查；CI 通过、AI 建议和人工批准是不同状态。本地参与者名称只是标签，不是身份认证。
-- **没有完整产品界面。** 当前没有 GUI、后台自动保存、自动远端同步或正式多人权限系统。状态目录包含本机路径，不能随 Skill 搬迁。
+- **The state repository is a separate copy.** Initialization imports only the source project's committed HEAD. It does not subsequently synchronize with the source project or a remote. Uncommitted changes do not automatically enter new workspaces.
+- **Local acceptance updates only the state repository.** It does not update the source project or GitHub. A combination preview cannot be accepted directly.
+- **The GitHub adapter is experimental.** It only targets private `newgit-integration-*` repositories on `github.com`, with an existing target baseline. It does not create repositories or provide merge or `APPROVE` operations. Easy GitHub itself is a public, open-source project.
+- **People still make the decisions.** `ready` means ready for review. Passing CI, AI recommendations, and human approval are different states. Local participant names are labels, not authenticated identities.
+- **There is no full product interface yet.** There is no GUI, background autosave, automatic remote synchronization, or full multi-user permission system. State directories contain machine-specific paths and cannot be relocated with the Skill.
 
-现有工具白名单也不等于操作系统沙箱。外部工具权限和实际检查范围见[编程工具接入](skills/easy-github/references/coders.md)。
+The tool allowlist is not an operating-system sandbox. See [coding tool integration](skills/easy-github/references/coders.md) for external tool permissions and what is actually checked.
 
-## 开发与验证
+## Development and verification
 
-Python 运行代码使用标准库。运行本地测试：
+The Python runtime uses only the standard library. Run the local tests:
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-本地演练使用模拟角色和临时 Git 仓库，不调用真实模型或 GitHub：
+The local demo uses simulated participants and temporary Git repositories. It does not call real models or GitHub:
 
 ```bash
 python3 scripts/run_demo.py
 ```
 
-修改 `prototype/` 中的运行源码后，重新生成 Skill 内的脚本副本和安装包：
+After changing runtime sources in `prototype/`, regenerate the Skill's script copies and archive:
 
 ```bash
 python3 scripts/package_skill.py
 ```
 
-不要分别修改 `prototype/` 与 Skill 中的运行脚本。生成的 `manifest.json` 记录包内文件哈希；打包不包含运行状态、凭据或本机日志。
+Do not maintain separate implementations in `prototype/` and the Skill's runtime scripts. The generated `manifest.json` records hashes of packaged files. Packaging excludes runtime state, credentials, and machine-local logs.
 
-## 许可证
+See the [contribution guide](CONTRIBUTING.md) for the review workflow and language conventions.
 
-[MIT](LICENSE)。Skill 安装包包含许可证，可按许可证条款使用、修改和分发。
+## License
+
+[MIT](LICENSE). The Skill archive includes the license and may be used, modified, and distributed under its terms.

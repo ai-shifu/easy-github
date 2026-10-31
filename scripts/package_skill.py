@@ -15,11 +15,13 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "easy-github"
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 RUNTIMES = ("newgit.py", "coders.py", "github_live.py")
 STATIC = (
     "SKILL.md", "LICENSE", "agents/openai.yaml", "references/workflow.md",
     "references/coders.md", "references/github.md",
+    "references/zh-CN/skill.md", "references/zh-CN/workflow.md",
+    "references/zh-CN/coders.md", "references/zh-CN/github.md",
 )
 
 

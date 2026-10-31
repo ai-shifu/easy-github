@@ -1,14 +1,26 @@
-# 参与开发
+# Contributing
 
-先通过 issue 描述问题或提出改进。修改时使用独立分支，完成相关验证后提交非草稿 PR；不要直接推送或主动合并到 `main`。
+[English](CONTRIBUTING.md) | [简体中文](CONTRIBUTING.zh-CN.md)
 
-运行源码位于 `prototype/`。Skill 内的 `scripts/` 是生成副本，修改源码或 Skill 内容后重新构建，不分别维护两份实现：
+Start with an issue describing the problem or proposed improvement. Work on a separate branch, complete the relevant verification, and open a ready, non-draft PR. Do not push directly to `main` or proactively merge into it.
+
+## Language conventions
+
+Use your preferred language when asking questions, discussing changes, or working with an AI tool. English is the default for PR titles, PR descriptions, and documentation so that contributors across languages can review the work.
+
+English documentation is the maintenance baseline. Simplified Chinese translations are provided in `README.zh-CN.md`, `CONTRIBUTING.zh-CN.md`, `docs/zh-CN/`, and `skills/easy-github/references/zh-CN/`. Keep the language-switch links and relative links working. When changing behavior or instructions, update both languages and preserve the same limits, verification requirements, and factual distinctions in each version.
+
+Additional translations are welcome. Follow the existing locale naming and directory layout, link each translation to its English source, and add translated Skill references to the explicit file list in `scripts/package_skill.py`. Keep a single top-level `SKILL.md` entrypoint so installing another translation does not create a competing Skill. Commands, IDs, JSON fields, and status values keep their original spelling; explain their meaning in the reader's language.
+
+## Source changes and verification
+
+Runtime sources live in `prototype/`. The Skill's `scripts/` directory contains generated copies. After changing runtime sources or Skill contents, rebuild the package instead of maintaining two implementations:
 
 ```bash
 python3 scripts/package_skill.py
 python3 -m unittest discover -s tests -v
 ```
 
-测试使用临时 Git 仓库与模拟传输，不需要 GitHub 凭据或模型服务。对真实工具或 GitHub 的联调需明确选择测试仓库，并保留精确版本与实际执行证据；不要把模拟测试描述为真人审核或真实外部 AI 执行。
+Tests use temporary Git repositories and simulated transports; they do not require GitHub credentials or model services. For integration checks with real tools or GitHub, explicitly select a test repository and retain the exact versions and evidence of actual execution. Do not describe simulations as human reviews or real execution by an external AI tool.
 
-请保持 `LICENSE` 与 Skill 内的许可证一致，不提交凭据、个人运行日志或工作状态目录。新增能力应有针对实际行为的检查，特别是版本绑定、旧候选拒绝和原工作目录保留。
+Keep `LICENSE` and the Skill's bundled license identical. Do not commit credentials, personal runtime logs, or work-state directories. New capabilities should have checks of actual behavior, especially exact-version binding, rejection of stale candidates, and preservation of original workspaces.

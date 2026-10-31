@@ -1,101 +1,103 @@
-# 使用示例
+# Usage examples
 
-下面是操作示例和预期流程，不是对你当前项目执行成功的声明。示例中的 `$easy-github` 是 Codex 的调用方式；在 Claude Code 中可改用 `/easy-github`。
+[English](examples.md) | [简体中文](zh-CN/examples.md)
 
-Easy GitHub 管理版本和交接，业务代码仍由你选择的编程工具完成。最终报告应区分实际结果、AI 建议和人的决定。
+These examples describe intended actions and expected workflows. They do not claim that any action has succeeded in your current project. `$easy-github` is the Codex invocation syntax; use `/easy-github` in Claude Code.
 
-## 一个人开始一项工作
+Easy GitHub manages versions and handoffs. Your chosen coding tool still writes the application code. Final reports should distinguish actual results, AI recommendations, and human decisions.
 
-在有已提交版本的本地项目中提出任务：
+## Start a task on your own
 
-```text
-用 $easy-github 为“给结算页增加优惠券”准备一个独立工作空间。
-我用当前编程工具来写；先告诉我接手目录和起始版本。
-```
-
-Skill 会检查当前项目与已有状态。首次使用时，它只导入已提交的 HEAD，创建位于源项目之外的状态库，再准备独立目录。已有未提交内容不会自动进入新目录；它也不会为此擅自提交或清理原项目。
-
-在返回的目录中完成业务改动与检查。确认使用这个目录的工具已停止写入，再说：
+In a local project with a committed version, request a workspace:
 
 ```text
-用 $easy-github 交付这份改动。编程工具已经停止写入。
-请整理实际变化、已执行的检查和需要我判断的问题，先不收下。
+Use $easy-github to prepare an isolated workspace for adding coupons to checkout.
+I'll use my current coding tool to write the code. First tell me the workspace path and starting version.
 ```
 
-程序固定交付版本，生成审查材料。检查必须对应被审查的具体候选；编程工具说“完成了”不等于所有验证都已通过。
+The Skill checks the current project and any existing state. On first use, it imports only the committed HEAD, creates a state repository outside the source project, and prepares an isolated workspace. Existing uncommitted changes do not automatically enter the new workspace. It will not commit or clean up the source project without authorization to make that happen.
 
-## 两个人、两个工具修改同一个功能
-
-假设原会员价格为 99 元：
-
-- 小林用 Codex 将价格调整为 129 元。
-- 小周用 Copilot 增加优惠券抵扣，仍按 99 元计算。
-
-分别准备工作空间，让两个工具从同一个项目版本独立工作。两个工具停写后，将两份改动交付，然后提出：
+Complete the application changes and checks in the returned workspace. Confirm that tools using that directory have stopped writing, then say:
 
 ```text
-用 $easy-github 检查这两份改动能不能一起使用。
-调价和优惠券都还没收下。若需要修改，给优惠券工作准备新修复目录，保留两个原目录。
+Use $easy-github to hand off these changes. The coding tool has stopped writing.
+Summarize the actual changes, checks that ran, and decisions I need to make. Do not accept the delivery yet.
 ```
 
-Skill 应以调价的固定交付为比较目标，生成组合预览，而不是先收下调价来改变团队版本。
+The program freezes a delivery and prepares review materials. Checks must correspond to the exact candidate under review. A coding tool saying it has finished does not mean all verification has passed.
 
-当前原型对“两个改动涉及同一文件”采取保守处理，会要求外部修订。只有实际 Git 输出证明文本冲突时，才能把它称为 Git 文本冲突。
+## Two people, two tools, one feature
 
-需要修复时，程序创建基于调价候选的新目录，提供两个版本的差异和原意图。再将该目录交给原编程工具：
+Suppose the original membership price is CNY 99:
+
+- Lin uses Codex to change the price to CNY 129.
+- Zhou uses GitHub Copilot CLI to add coupon discounts, still calculating from CNY 99.
+
+Prepare separate workspaces so that both tools work independently from the same project version. After both tools stop writing, hand off both deliveries and ask:
 
 ```text
-在新的修复目录接回优惠券功能，保留 129 元价格。
-无券应为 129 元，20 元券后应为 109 元，超额券最低为 0 元。
-运行对应检查，完成后停止写入，再交回 Easy GitHub。
+Use $easy-github to check whether these two deliveries can work together.
+Neither the price change nor the coupon change has been accepted. If revisions are needed, prepare a new workspace for the coupon fix and preserve both original workspaces.
 ```
 
-上述数值是待验证要求。修复完成后重新固定交付、生成审查材料，再对确切候选执行检查。旧版本的检查和批准不能自动沿用。组合预览仍不表示任何改动已被收下。
+The Skill should use the frozen price-change delivery as the comparison target and produce a combination preview. It should not first accept the price change and thereby change the team's version.
 
-之后，若调价已通过独立审查、检查和人的确认，在本地团队版本中收下，可继续提出：
+The prototype takes a conservative approach when two deliveries touch the same file: it requests an external revision. Call it a Git text conflict only when actual Git output establishes one.
+
+When a fix is needed, the program creates a new workspace based on the price-change candidate and provides the diffs and original intent of both deliveries. Hand that directory back to the original coding tool:
 
 ```text
-用 $easy-github 把优惠券工作更新到当前本地团队版本。
-调价已经在本地收下；请准备新目录，让编程工具恢复优惠券功能，再重新交付和审查，先不收下。
+Restore the coupon feature in the new revision workspace while keeping the price at CNY 129.
+With no coupon, the total should be CNY 129. A CNY 20 coupon should reduce it to CNY 109. An excessive discount must not reduce the total below CNY 0.
+Run the relevant checks, stop writing when finished, and hand the result back to Easy GitHub.
 ```
 
-这次普通 `update` 无需指定新的依赖。程序确认调价的固定版本已纳入本地团队历史后，以当前团队版本准备新目录，新的交付和审查不再标记为组合预览。原目录、旧交付和旧预览审查仍保留。对新候选重新验证 129 元、109 元和最低 0 元等行为，再由人确认是否在本地收下。仅在 GitHub 上合并调价不会自动更新独立的本地团队版本。
+These values are requirements to verify. After the fix, freeze a new delivery, prepare review materials, and check the exact candidate. Checks and approvals for the old version do not carry over automatically. A combination preview still does not mean either delivery has been accepted.
 
-## 只送到 GitHub 审查，不合并
-
-当前 GitHub 适配器仅支持 `github.com` 上私有、名称以 `newgit-integration-` 开头的测试仓库。目标基线必须已存在，且与交付基线一致。它不能直接用来管理任意生产仓库。
-
-在满足这些条件且已完成 `gh` 登录后，可明确指定目标：
+Later, once the price change has passed its own review and checks and a person has confirmed its local acceptance into the team's version, ask:
 
 ```text
-用 $easy-github 将这份固定交付送到我指定的测试仓库审查。
-先核对目标仓库、基线和已有 PR，避免重复创建。
-创建非草稿 PR；AI 审查只记录为 COMMENT，不批准、不合并。
+Use $easy-github to update the coupon work to the current local team version.
+The price change has been accepted locally. Prepare a new workspace so the coding tool can restore the coupon feature, then hand it off and review it again. Do not accept it yet.
 ```
 
-如果优惠券是在未合并的调价交付上修复，可将优惠券 PR 指向调价的交付分支，使两个 PR 均保持未合并。审查必须绑定实际看过的 head、base 分支和 base SHA。
+This ordinary `update` does not need a new dependency. After confirming that the frozen price-change version is in the local team's history, the program prepares a new workspace from the current team version. The new delivery and review are no longer marked as combination previews. The original workspaces, old deliveries, and old preview reviews remain available. Recheck the CNY 129, CNY 109, and CNY 0 minimum behaviors on the new candidate, then let a person decide whether to accept it locally. Merging the price change only on GitHub does not automatically update the separate local team version.
 
-完成后应分别看到：
+## Send changes to GitHub for review without merging
 
-- PR 链接、当前版本、是否仍打开且未合并。
-- CI 针对哪一个版本运行，以及实际结果。
-- AI 审查的工具、范围、发现和 COMMENT 链接。
-- 人是否已经给出实际确认。
+The GitHub adapter currently supports only private test repositories on `github.com` whose names start with `newgit-integration-`. The target baseline must already exist and match the delivery baseline. The adapter cannot manage arbitrary production repositories.
 
-创建 PR 不等于 CI 成功；AI 没有发现问题也不等于人批准。Easy GitHub 不提供 GitHub merge 或 `APPROVE` 操作，不主动合并 `main`。
-
-## 工具暂时不能用
+Once these conditions are met and `gh` is authenticated, specify the target explicitly:
 
 ```text
-当前编程工具无法正常响应。用 $easy-github 保留已经完成的改动和失败记录，改用我指定的另一款工具继续。
+Use $easy-github to send this frozen delivery to my specified test repository for review.
+Check the target repository, baseline, and any existing PR first to avoid duplicates.
+Create a ready, non-draft PR. Record AI reviews as COMMENT only. Do not approve or merge.
 ```
 
-Skill 应先确认旧工具已停止写入，再记录工具变更和新的接手位置。它不会以模拟输出冒充新工具的真实执行，也不会为继续工作擅自改动全局认证配置。
+If the coupon fix is based on the unmerged price-change delivery, its PR can target the price-change delivery branch so that both PRs remain unmerged. Reviews must bind to the head, base branch, and base SHA that were actually examined.
 
-## “收下”具体意味着什么
+Afterward, the report should show each of the following separately:
 
-当前本地 `accept` 只更新隔离状态库中的团队版本，不会更新源项目或 GitHub。`preview_only` 的候选不能收下。
+- The PR link, current version, and whether it remains open and unmerged.
+- The exact version CI ran against and its actual results.
+- The AI review's tool, scope, findings, and COMMENT link.
+- Whether a person has actually confirmed the change.
 
-如果你决定接受某个本地候选，应明确确认具体审查对象和接收位置。Skill 需再次检查版本与授权是否仍匹配，再回读结果，不能把“可审查”提前报告为“已经纳入”。
+Creating a PR does not mean CI has passed. An AI review finding no issues does not mean a person has approved. Easy GitHub provides no GitHub merge or `APPROVE` operation and never proactively merges into `main`.
 
-更详细的机器接口见 [Skill 工作流参考](../skills/easy-github/references/workflow.md)。
+## When a tool is temporarily unavailable
+
+```text
+The current coding tool is not responding correctly. Use $easy-github to preserve the completed changes and failure record, then continue with the alternative tool I specify.
+```
+
+The Skill should first confirm that the old tool has stopped writing, then record the tool change and new handoff location. It will not present simulated output as real execution by the new tool or change global authentication settings without authorization just to keep going.
+
+## What does local acceptance mean?
+
+The local `accept` operation updates only the team version inside the isolated state repository. It does not update the source project or GitHub. A `preview_only` candidate cannot be accepted.
+
+If you decide to accept a local candidate, explicitly confirm the exact review and where it should be accepted. The Skill must recheck that the versions and authorization still match, then read back the result. It must not report a candidate as already incorporated when it is only ready for review.
+
+See the [Skill workflow reference](../skills/easy-github/references/workflow.md) for the detailed machine interface.

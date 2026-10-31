@@ -32,22 +32,22 @@ def run_scenario(root):
             raise AssertionError(report)
         checks.append(report)
 
-    lin = controller.start("xiaolin", "Codex (simulated)", "会员调价")
-    zhou = controller.start("xiaozhou", "Claude Code (simulated)", "增加优惠券")
+    lin = controller.start("xiaolin", "Codex (simulated)", "Update membership price")
+    zhou = controller.start("xiaozhou", "Claude Code (simulated)", "Add coupon support")
     assert lin["base"] == zhou["base"]
     assert lin["workspace"] != zhou["workspace"]
     events.append({"step": "start", "lin": lin, "zhou": zhou})
 
     # These writes simulate outputs from external coding tools; neither product is launched.
-    (Path(lin["workspace"]) / "checkout.py").write_text(PRICE)
-    (Path(zhou["workspace"]) / "checkout.py").write_text(COUPON)
-    a1 = controller.submit(lin["id"], lin["attempt"], "会员价改为129元", handoff=True)
-    b1 = controller.submit(zhou["id"], zhou["attempt"], "支持20元优惠券", handoff=True)
+    (Path(lin["workspace"]) / "checkout.py").write_text(PRICE, encoding="utf-8")
+    (Path(zhou["workspace"]) / "checkout.py").write_text(COUPON, encoding="utf-8")
+    a1 = controller.submit(lin["id"], lin["attempt"], "Set membership price to CNY 129", handoff=True)
+    b1 = controller.submit(zhou["id"], zhou["attempt"], "Support a CNY 20 coupon", handoff=True)
     events.append({"step": "deliver", "a1": a1, "b1": b1})
 
     # Continuing work after delivery must stay outside the submitted snapshot.
     draft_path = Path(zhou["workspace"]) / "next-task.txt"
-    draft_path.write_text("Still editing a different idea.\n")
+    draft_path.write_text("Still editing a different idea.\n", encoding="utf-8")
     original_zhou_head = git(zhou["workspace"], "rev-parse", "HEAD")
     review_a = controller.review(a1["id"], "xiaozhou")
     assert review_a["status"] == "ready"
@@ -55,7 +55,7 @@ def run_scenario(root):
     accepted_a = controller.accept(review_a["id"], "xiaozhou")
     v2 = controller.status()["team_sha"]
     assert git(zhou["workspace"], "rev-parse", "HEAD") == original_zhou_head
-    assert (Path(zhou["workspace"]) / "checkout.py").read_text() == COUPON
+    assert (Path(zhou["workspace"]) / "checkout.py").read_text(encoding="utf-8") == COUPON
     events.append({"step": "accept_price", "review": review_a, "result": accepted_a})
 
     blocked = controller.review(b1["id"], "xiaolin")
@@ -71,11 +71,11 @@ def run_scenario(root):
     repair = controller.prepare_update(b1["id"])
     assert repair["id"] == zhou["id"] and repair["base"] == v2
     assert repair["workspace"] != zhou["workspace"]
-    assert draft_path.read_text() == "Still editing a different idea.\n"
+    assert draft_path.read_text(encoding="utf-8") == "Still editing a different idea.\n"
     assert not (Path(repair["workspace"]) / "next-task.txt").exists()
     assert Path(repair["context_file"]).exists()
-    (Path(repair["workspace"]) / "checkout.py").write_text(COMBINED)
-    b2 = controller.submit(repair["id"], repair["attempt"], "保留129元，接入优惠券", handoff=True)
+    (Path(repair["workspace"]) / "checkout.py").write_text(COMBINED, encoding="utf-8")
+    b2 = controller.submit(repair["id"], repair["attempt"], "Add coupons while keeping the CNY 129 price", handoff=True)
     assert b2["revision"] == b1["revision"] + 1
     assert git(state / "repo.git", "show", b1["sha"] + ":checkout.py") == COUPON.strip()
     events.append({"step": "repair_delivery", "repair": repair, "b2": b2})
@@ -99,7 +99,7 @@ def run_scenario(root):
                    "old_evidence_rejected": stale_check})
 
     # Offline contract fixtures, not a call to GitHub or proof of a live integration.
-    plan = publish_plan("example/membership", b2, "增加优惠券")
+    plan = publish_plan("example/membership", b2, "Add coupon support")
     response = {"number": 42, "state": "open", "draft": False, "merged": False,
                 "head": {"sha": b2["sha"], "ref": plan["branch"]},
                 "base": {"ref": plan["base"], "repo": {"full_name": plan["repository"]}}}
@@ -125,6 +125,9 @@ def run_scenario(root):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, help="New or empty directory to retain fixtures and report")
     args = parser.parse_args()
@@ -134,7 +137,7 @@ def main():
             parser.error("--output must be a new or empty directory")
         root.mkdir(parents=True, exist_ok=True)
         report = run_scenario(root)
-        (root / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+        (root / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(json.dumps({"result": report["result"], "report": str(root / "report.json"),
                           "final": report["final"], "limits": report["limits"]}, ensure_ascii=False, indent=2))
     else:
