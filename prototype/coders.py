@@ -13,12 +13,24 @@ import selectors
 
 
 def redactor():
+    def sensitive_key(key):
+        normalized = re.sub(r"[^a-z0-9]", "", key.lower())
+        return normalized.endswith(("token", "secret", "password", "apikey", "authorization"))
+
     known = [v for k, v in os.environ.items()
-             if re.search(r"(?:TOKEN|SECRET|PASSWORD|API_KEY)$", k) and len(v) >= 8]
+             if sensitive_key(k) and len(v) >= 8]
+    assignments = re.compile(
+        r'''(?P<key>\b[A-Za-z][A-Za-z0-9_-]*)(?P<sep>\s*[:=]\s*)'''
+        r'''(?P<value>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;]+)''')
+
+    def clean_assignment(match):
+        if not sensitive_key(match["key"]):
+            return match[0]
+        return match["key"] + match["sep"] + "[redacted]"
 
     def clean(value):
         if isinstance(value, dict):
-            return {k: "[redacted]" if re.search(r"(?:token|secret|password|api_key|authorization)$", k, re.I)
+            return {k: "[redacted]" if sensitive_key(k)
                     else clean(v) for k, v in value.items()}
         if isinstance(value, list):
             return [clean(v) for v in value]
@@ -26,9 +38,10 @@ def redactor():
             return value
         for secret in known:
             value = value.replace(secret, "[redacted]")
-        value = re.sub(r"\b(?:sk-ant-[A-Za-z0-9_-]+|gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)",
+        value = re.sub(r"\b(?:sk-ant-[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)",
                        "[redacted]", value)
-        return re.sub(r"(?i)(Bearer\s+)[A-Za-z0-9_.~+/=-]+", r"\1[redacted]", value)
+        value = re.sub(r"(?i)((?:Bearer|Basic)\s+)[A-Za-z0-9_.~+/=-]+", r"\1[redacted]", value)
+        return assignments.sub(clean_assignment, value)
     return clean
 
 
@@ -101,7 +114,7 @@ def run(tool, workspace, prompt_file, output, mode="edit", timeout=600):
     clean = redactor()
     prompt = prompt_file.read_text()
     command = command_for(tool, workspace, output, mode)
-    output.mkdir(parents=True, exist_ok=False)
+    output.mkdir(mode=0o700, parents=True, exist_ok=False)
     (output / "prompt.txt").write_text(clean(prompt))
     child_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     if tool == "copilot":

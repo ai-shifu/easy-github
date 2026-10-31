@@ -18,6 +18,8 @@ python3 "<Skill目录>/scripts/coders.py" --tool codex --workspace "<分配工�
 
 runner 使用本机原生配置和认证，不复制凭据到提示或提交。保留 `manifest.json`、脱敏输出、`stderr.txt` 和 `final.txt`：
 
+运行记录目录仅当前用户可访问。脱敏覆盖已知环境凭据、常见 token 格式、认证头，以及 `apiKey`、`x-api-key` 等敏感字段与文本赋值；这是尽力处理，无法识别所有未知格式的秘密。运行记录应保持私有，分享前仍需检查内容。
+
 | 工具 | 原生输出与判定 | 权限边界 |
 |---|---|---|
 | Codex | JSON 事件 `events.jsonl`，识别 turn 完成或失败；记录会话 ID | edit 为 `workspace-write`，review 为 `read-only` |
