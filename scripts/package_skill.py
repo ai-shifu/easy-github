@@ -23,7 +23,7 @@ STATIC = (
 )
 
 
-def build(output=None):
+def _payloads():
     skill = ROOT / "skills" / NAME
     # Validate all inputs before modifying generated runtime copies or a bundle.
     inputs = {name: skill / name for name in STATIC}
@@ -32,12 +32,6 @@ def build(output=None):
         if not path.is_file() or path.is_symlink():
             raise ValueError("Expected a regular package input: " + name)
     payloads = {name: path.read_bytes() for name, path in inputs.items()}
-    for name in RUNTIMES:
-        target = skill / "scripts" / name
-        if target.is_symlink():
-            raise ValueError("Refusing symlink runtime destination: " + str(target))
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(payloads["scripts/" + name])
     manifest = {
         "name": NAME, "version": VERSION,
         "files_sha256": {name: hashlib.sha256(data).hexdigest()
@@ -45,7 +39,37 @@ def build(output=None):
         "runtime_source": "Development sources live in prototype/; rebuild with scripts/package_skill.py.",
     }
     payloads["manifest.json"] = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode()
-    (skill / "manifest.json").write_bytes(payloads["manifest.json"])
+    return skill, payloads
+
+
+def verify(output=None):
+    """Check tracked contents without rebuilding or depending on ZIP compression."""
+    skill, payloads = _payloads()
+    for name, expected in payloads.items():
+        path = skill / name
+        if path.is_symlink() or not path.is_file() or path.read_bytes() != expected:
+            raise ValueError("Stale or invalid generated Skill file: " + name)
+    output = Path(output) if output is not None else ROOT / "dist" / (NAME + ".skill")
+    with zipfile.ZipFile(output) as archive:
+        names = archive.namelist()
+        expected_names = {NAME + "/" + name for name in payloads}
+        if len(names) != len(expected_names) or set(names) != expected_names:
+            raise ValueError("Archive file list does not match the Skill")
+        for name, expected in payloads.items():
+            if archive.read(NAME + "/" + name) != expected:
+                raise ValueError("Stale archive content: " + name)
+    return {"name": NAME, "version": VERSION, "archive": str(output.resolve()),
+            "files": len(payloads), "status": "verified"}
+
+
+def build(output=None):
+    skill, payloads = _payloads()
+    for name in [*("scripts/" + name for name in RUNTIMES), "manifest.json"]:
+        target = skill / name
+        if target.is_symlink():
+            raise ValueError("Refusing symlink runtime destination: " + str(target))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payloads[name])
     output = Path(output) if output is not None else ROOT / "dist" / (NAME + ".skill")
     if output.is_symlink():
         raise ValueError("Refusing symlink archive destination")
@@ -68,8 +92,9 @@ def build(output=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--check", action="store_true", help="Verify existing files without rebuilding")
     args = parser.parse_args()
-    print(json.dumps(build(args.output), ensure_ascii=False, indent=2))
+    print(json.dumps((verify if args.check else build)(args.output), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

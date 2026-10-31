@@ -26,6 +26,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python }}
+      - name: Verify the tracked Skill and download before tests can regenerate files
+        run: python3 scripts/package_skill.py --check
       - name: Run offline tests
         run: python3 -m unittest discover -s tests -v
       - name: Build the portable Skill
