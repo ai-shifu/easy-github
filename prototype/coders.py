@@ -1,5 +1,6 @@
 """Run installed coding CLIs in a supplied workspace; preserve native execution evidence."""
 import argparse
+import codecs
 import datetime
 import json
 from pathlib import Path
@@ -8,7 +9,7 @@ import os
 import signal
 import time
 import re
-import threading
+import selectors
 
 
 def redactor():
@@ -116,77 +117,141 @@ def run(tool, workspace, prompt_file, output, mode="edit", timeout=600):
     manifest_path = output / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     started = time.monotonic()
-    auth_failed = threading.Event()
+    auth_failed = False
     auth_errors = []
 
-    def capture(pipe, destination, inspect=False):
-        for line in pipe:
-            if tool == "copilot":
-                destination.write(clean(line))
-                destination.flush()
-                if not inspect and re.search(
-                        r"No authentication information (?:found|available)|"
-                        r"Failed to (?:retrieve|[Gg]et) authentication token|"
-                        r"authentication[_ ]failed|"
-                        r"\b(?:401|403)\b.*(?:authentication|unauthorized|forbidden)", line, re.I):
-                    auth_failed.set()
-                continue
-            try:
-                event = json.loads(line)
-                if inspect and event.get("error") == "authentication_failed":
-                    auth_errors.append(True)
-                    if len(auth_errors) >= 2:
-                        auth_failed.set()
-                text = json.dumps(clean(event), ensure_ascii=False) + "\n"
-            except json.JSONDecodeError:
-                text = clean(line)
-            destination.write(text)
+    def capture_line(line, destination, inspect=False):
+        nonlocal auth_failed
+        if tool == "copilot":
+            destination.write(clean(line))
             destination.flush()
-        pipe.close()
-
-    def stop(process):
-        if process.poll() is not None:
+            if not inspect and re.search(
+                    r"No authentication information (?:found|available)|"
+                    r"Failed to (?:retrieve|[Gg]et) authentication token|"
+                    r"authentication[_ ]failed|"
+                    r"\b(?:401|403)\b.*(?:authentication|unauthorized|forbidden)", line, re.I):
+                auth_failed = True
             return
-        os.killpg(process.pid, signal.SIGTERM)
         try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
+            event = json.loads(line)
+            if inspect and event.get("error") == "authentication_failed":
+                auth_errors.append(True)
+                if len(auth_errors) >= 2:
+                    auth_failed = True
+            text = json.dumps(clean(event), ensure_ascii=False) + "\n"
+        except json.JSONDecodeError:
+            text = clean(line)
+        destination.write(text)
+        destination.flush()
 
     stdout_path = output / ("stdout.txt" if tool == "copilot" else "events.jsonl")
-    with stdout_path.open("w") as stdout, (output / "stderr.txt").open("w") as stderr:
+    with (stdout_path.open("w") as stdout, (output / "stderr.txt").open("w") as stderr,
+          selectors.DefaultSelector() as selector):
         process = subprocess.Popen(command, cwd=workspace, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, text=True, start_new_session=True,
+                                   stderr=subprocess.PIPE, start_new_session=True,
                                    env=child_env)
         manifest["pid"] = process.pid
-        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-        readers = [threading.Thread(target=capture, args=(process.stdout, stdout, True)),
-                   threading.Thread(target=capture, args=(process.stderr, stderr))]
-        for reader in readers:
-            reader.start()
+        streams = {}
+        deadline = started + timeout
+        cleanup_started = None
+        killed = False
+
+        def signal_group(sig):
+            # The process group may still contain children after its leader exits.
+            try:
+                os.killpg(process.pid, sig)
+            except ProcessLookupError:
+                pass
+
+        def close_pipe(pipe):
+            if pipe.closed:
+                return
+            try:
+                selector.unregister(pipe)
+            except KeyError:
+                pass
+            pipe.close()
+
+        def capture_chunk(pipe, data, final=False):
+            stream = streams[pipe]
+            stream["pending"] += stream["decoder"].decode(data, final=final)
+            while "\n" in stream["pending"]:
+                line, stream["pending"] = stream["pending"].split("\n", 1)
+                capture_line(line + "\n", stream["destination"], stream["inspect"])
+            if final and stream["pending"]:
+                capture_line(stream["pending"], stream["destination"], stream["inspect"])
+                stream["pending"] = ""
+
         try:
-            process.stdin.write(prompt)
-            process.stdin.close()
-            while process.poll() is None:
-                if auth_failed.is_set():
-                    manifest["failure_reason"] = "authentication_failed"
-                    stop(process)
+            manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+            pending_input = memoryview(prompt.encode("utf-8"))
+            for pipe, destination, inspect in ((process.stdout, stdout, True), (process.stderr, stderr, False)):
+                os.set_blocking(pipe.fileno(), False)
+                streams[pipe] = {"destination": destination, "inspect": inspect,
+                                 "decoder": codecs.getincrementaldecoder("utf-8")("replace"), "pending": ""}
+                selector.register(pipe, selectors.EVENT_READ)
+            os.set_blocking(process.stdin.fileno(), False)
+            selector.register(process.stdin, selectors.EVENT_WRITE)
+            # Keep the deadline active until both the leader and its output pipes
+            # finish. All pipe I/O is nonblocking, including a large input prompt.
+            while selector.get_map() or process.poll() is None:
+                now = time.monotonic()
+                if cleanup_started is None and (auth_failed or now >= deadline):
+                    cleanup_started = now
+                    if auth_failed:
+                        manifest["failure_reason"] = "authentication_failed"
+                    else:
+                        manifest["timed_out"] = True
+                        manifest["failure_reason"] = ("output_drain_timeout" if process.poll() is not None
+                                                      else "timeout")
+                    signal_group(signal.SIGTERM)
+                    close_pipe(process.stdin)
+                if cleanup_started is not None and now - cleanup_started >= 0.5 and not killed:
+                    signal_group(signal.SIGKILL)
+                    killed = True
+                if cleanup_started is not None and now - cleanup_started >= 1:
+                    # A descendant can escape the group yet retain a pipe. Close
+                    # our readers after a bounded drain instead of waiting for EOF.
+                    for pipe in list(streams):
+                        capture_chunk(pipe, b"", final=True)
                     break
-                if time.monotonic() - started >= timeout:
-                    manifest["timed_out"] = True
-                    stop(process)
-                    break
-                try:
-                    process.wait(timeout=0.2)
-                except subprocess.TimeoutExpired:
-                    pass
+                wake_at = deadline if cleanup_started is None else cleanup_started + (1 if killed else 0.5)
+                for key, _ in selector.select(max(0, min(0.1, wake_at - now))):
+                    pipe = key.fileobj
+                    if pipe is process.stdin:
+                        if not pending_input:
+                            close_pipe(pipe)
+                            continue
+                        try:
+                            written = os.write(pipe.fileno(), pending_input[:65536])
+                            pending_input = pending_input[written:]
+                        except BlockingIOError:
+                            continue
+                        except BrokenPipeError:
+                            manifest["failure_reason"] = "prompt_not_delivered"
+                            close_pipe(pipe)
+                        continue
+                    try:
+                        data = os.read(pipe.fileno(), 65536)
+                    except BlockingIOError:
+                        continue
+                    capture_chunk(pipe, data, final=not data)
+                    if not data:
+                        del streams[pipe]
+                        close_pipe(pipe)
         except BaseException:
-            stop(process)
+            signal_group(signal.SIGTERM)
+            signal_group(signal.SIGKILL)
             raise
         finally:
-            for reader in readers:
-                reader.join()
+            if cleanup_started is not None:
+                signal_group(signal.SIGKILL)
+            for pipe in (process.stdin, process.stdout, process.stderr):
+                close_pipe(pipe)
+            try:
+                process.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                manifest["failure_reason"] = "process_cleanup_failed"
     events = []
     for line in ([] if tool == "copilot" else stdout_path.read_text().splitlines()):
         try:
@@ -196,9 +261,9 @@ def run(tool, workspace, prompt_file, output, mode="edit", timeout=600):
     if tool == "copilot":
         final_text = stdout_path.read_text().strip()
         (output / "final.txt").write_text(final_text + ("\n" if final_text else ""))
-        if auth_failed.is_set():
+        if auth_failed:
             manifest["failure_reason"] = "authentication_failed"
-        successful = bool(final_text) and not auth_failed.is_set() and not manifest.get("timed_out")
+        successful = bool(final_text) and not auth_failed and not manifest.get("timed_out")
         if not final_text and "failure_reason" not in manifest:
             manifest["failure_reason"] = "missing_response"
     elif tool == "claude":
@@ -219,6 +284,7 @@ def run(tool, workspace, prompt_file, output, mode="edit", timeout=600):
         if not manifest["review_workspace_unchanged"]:
             successful = False
             manifest["failure_reason"] = "review_workspace_changed"
+    successful = successful and not manifest.get("timed_out") and not manifest.get("failure_reason")
     manifest.update(exit_code=process.returncode, duration_seconds=round(time.monotonic() - started, 2),
                     status="completed" if process.returncode == 0 and successful else "failed",
                     event_count=len(events))
