@@ -66,7 +66,9 @@ class Prototype:
                 else:
                     path = self.state / "state.json"
                     self._require(path.is_file(), "not_initialized", "State is not initialized")
-                    yield json.loads(path.read_text())
+                    data = json.loads(path.read_text())
+                    self._recover_acceptance(data)
+                    yield data
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
 
@@ -88,6 +90,53 @@ class Prototype:
         finally:
             if os.path.exists(name):
                 os.unlink(name)
+
+    @staticmethod
+    def _acceptance_intent(review, delivery):
+        return {"review_id": review["id"], "delivery_id": delivery["id"],
+                "work_id": review["work_id"], "revision": review["revision"],
+                "attempt": delivery["attempt"], "reviewer": review["reviewer"],
+                "old_sha": review["team_sha"], "candidate_sha": review["candidate_sha"]}
+
+    def _recover_acceptance(self, data):
+        """Reconcile an interrupted, already-authorized acceptance under the lock."""
+        intent = data.get("pending_accept")
+        if intent is None:
+            return
+        review = data.get("reviews", {}).get(intent.get("review_id")) if isinstance(intent, dict) else None
+        delivery = data.get("deliveries", {}).get(review.get("delivery_id")) if review else None
+        work = data.get("works", {}).get(review.get("work_id")) if review else None
+        checks = list(review.get("checks", {}).values()) if review else []
+        valid = (review and delivery and work
+                 and intent == self._acceptance_intent(review, delivery)
+                 and review.get("status") == "ready" and not review.get("preview_only")
+                 and review["reviewer"] != delivery["owner"]
+                 and work["latest_delivery"] == delivery["id"]
+                 and work["revision"] == delivery["revision"] == review["revision"]
+                 and work["attempt"] == delivery["attempt"]
+                 and checks and all(check.get("status") == "passed"
+                                    and check.get("snapshot_sha") == review["candidate_sha"]
+                                    for check in checks))
+        self._require(valid, "acceptance_conflict",
+                      "Pending acceptance no longer matches its review; state was not changed")
+        actual = self._team()
+        self._require(actual in (intent["old_sha"], intent["candidate_sha"]), "acceptance_conflict",
+                      "Team ref differs from both pending acceptance versions; state was not changed")
+        if actual == intent["candidate_sha"]:
+            review["accepted"] = True
+        else:
+            self._require(not review.get("accepted"), "acceptance_conflict",
+                          "Accepted review conflicts with the old team ref; state was not changed")
+            # The ref transition never took effect. Drop only the unapplied
+            # intent; an explicit retry must pass all normal acceptance checks.
+        data.pop("pending_accept")
+        self._save(data)
+
+    @staticmethod
+    def _accepted_result(review):
+        return {"status": "accepted", "review_id": review["id"],
+                "delivery_id": review["delivery_id"], "work_id": review["work_id"],
+                "team_sha": review["candidate_sha"], "candidate_sha": review["candidate_sha"]}
 
     @classmethod
     def initialize(cls, source: Path, state: Path) -> "Prototype":
@@ -287,6 +336,10 @@ class Prototype:
             work = self._get(data, "works", delivery["work_id"])
             self._require(reviewer != delivery["owner"], "self_review", "Authors cannot accept their own delivery")
             self._require(reviewer == review["reviewer"], "wrong_reviewer", "Only this review's reviewer may accept it")
+            if review.get("accepted") and self._team() == review["candidate_sha"]:
+                # A crash after durable completion can lose the response. A
+                # matching retry reports that completion without another write.
+                return self._accepted_result(review)
             self._require(not review.get("accepted"), "already_accepted", "Review was already accepted")
             self._require(review["status"] == "ready", "needs_update", "Delivery requires an external update")
             self._require(work["latest_delivery"] == delivery["id"]
@@ -300,6 +353,10 @@ class Prototype:
                           "checks_failed", "Every recorded candidate check must pass")
             self._require(self._team() == review["team_sha"], "stale_review",
                           "The team version changed; review the delivery again")
+            # Journal authorization and the exact CAS before changing Git. If
+            # either store cannot finish, the next locked call reconciles them.
+            data["pending_accept"] = self._acceptance_intent(review, delivery)
+            self._save(data)
             try:
                 self._git("update-ref", self.TEAM_REF, review["candidate_sha"], review["team_sha"])
             except PrototypeError as error:
@@ -310,9 +367,9 @@ class Prototype:
             self._require(actual == review["candidate_sha"], "verification_failed",
                           "Team ref readback did not match the accepted candidate")
             review["accepted"] = True
+            data.pop("pending_accept")
             self._save(data)
-            return {"status": "accepted", "review_id": review_id, "delivery_id": delivery["id"],
-                    "work_id": work["id"], "team_sha": actual, "candidate_sha": actual}
+            return self._accepted_result(review)
 
     def prepare_update(self, delivery_id, onto_delivery_id=None):
         with self._locked() as data:
