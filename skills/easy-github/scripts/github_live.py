@@ -24,6 +24,8 @@ class GitHubReviewAdapter:
         self._require(isinstance(repository, str)
                       and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository),
                       "invalid_repository", "Expected an explicit owner/repository")
+        self._require(all(part not in {".", ".."} for part in repository.split("/")),
+                      "invalid_repository", "Repository identifiers cannot contain dot segments")
         name = repository.split("/", 1)[1]
         self._require(name.startswith("newgit-integration-")
                       and len(name) > len("newgit-integration-"),
@@ -92,7 +94,10 @@ class GitHubReviewAdapter:
 
     def _api(self, method, path, payload=None, *, allow_not_found=False):
         self._require(method in {"GET", "POST", "PATCH"}, "unsupported_method", "Unsupported API method")
-        self._require(path == "/user" or path.startswith(f"/repos/{self.repository}"),
+        prefix = f"/repos/{self.repository}"
+        self._require(isinstance(path, str)
+                      and (path == "/user" or path == prefix or path.startswith(prefix + "/"))
+                      and all(part not in {".", ".."} for part in path.split("/")),
                       "unexpected_endpoint", "API request escaped the selected repository")
         args = ["gh", "api", "--hostname", "github.com", "--method", method, path]
         if payload is not None:
@@ -160,12 +165,36 @@ class GitHubReviewAdapter:
                           "Pull request base changed from the frozen delivery baseline")
 
     def _verify_local_commit(self, sha, base_sha):
-        result = self._run(["git", "cat-file", "-t", sha])
+        result = self._run(["git", "--git-dir", str(self.git_dir), "cat-file", "-t", sha])
         self._require(result.returncode == 0 and result.stdout.strip() == "commit",
                       "missing_commit", "Frozen delivery is not a local commit")
-        result = self._run(["git", "merge-base", "--is-ancestor", base_sha, sha])
+        result = self._run(["git", "--git-dir", str(self.git_dir),
+                            "merge-base", "--is-ancestor", base_sha, sha])
         self._require(result.returncode == 0, "invalid_ancestry",
                       "Frozen baseline must be an ancestor of the delivered commit")
+
+    def _verify_registered_delivery(self, delivery):
+        identifier = delivery.get("id")
+        self._require(isinstance(identifier, str)
+                      and re.fullmatch(r"[A-Za-z0-9_-]+", identifier),
+                      "invalid_delivery", "Expected a frozen delivery identifier")
+        # The manager owns <state>/repo.git and the adjacent state.json. An
+        # arbitrary Git checkout plus caller-supplied JSON is not a handoff.
+        self._require(self.git_dir.name == "repo.git", "unregistered_delivery",
+                      "Publish requires the manager's state/repo.git directory")
+        try:
+            state = json.loads((self.git_dir.parent / "state.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise GitHubAdapterError("unregistered_delivery",
+                                     "Could not read the local delivery registry") from error
+        records = state.get("deliveries") if isinstance(state, dict) else None
+        record = records.get(identifier) if isinstance(records, dict) else None
+        self._require(isinstance(record, dict) and record == delivery,
+                      "unregistered_delivery", "Input must match the complete frozen delivery record")
+        result = self._run(["git", "--git-dir", str(self.git_dir), "show-ref", "--verify", "--hash",
+                            "refs/prototype/deliveries/" + identifier])
+        self._require(result.returncode == 0 and result.stdout.strip() == delivery["sha"],
+                      "delivery_ref_mismatch", "The immutable delivery ref does not match its record")
 
     def publish(self, delivery, title, body, base, previous_head=None, pull_number=None):
         self._require(isinstance(delivery, dict), "invalid_delivery", "Expected a delivery object")
@@ -183,6 +212,7 @@ class GitHubReviewAdapter:
         if previous_head is not None:
             self._sha(previous_head)
             self._number(pull_number)
+        self._verify_registered_delivery(delivery)
         self._verify_local_commit(sha, base_sha)
         publisher = self._context()
         remote_base = self._ref(base)
@@ -202,7 +232,7 @@ class GitHubReviewAdapter:
         lease = f"--force-with-lease={ref}:{previous_head or ''}"
         # Scope credential selection to this command and use the same gh account
         # recorded above. No token is read, printed, or written by this adapter.
-        push = self._run(["git", "-c", "credential.helper=", "-c",
+        push = self._run(["git", "--git-dir", str(self.git_dir), "-c", "credential.helper=", "-c",
                           "credential.helper=!gh auth git-credential", "push", "--porcelain", lease,
                           f"https://github.com/{self.repository}.git", f"{sha}:{ref}"])
         self._evidence("push", {"repository": self.repository, "publisher_login": publisher,
@@ -219,8 +249,20 @@ class GitHubReviewAdapter:
             pull_number = self._number(created.get("number"))
         else:
             self._api("PATCH", f"{endpoint}/{pull_number}", {"title": title, "body": body, "base": base})
-        pr = self._pr(pull_number)
-        self._verify_pr(pr, pull_number, branch, sha, base=base, base_sha=base_sha)
+        for attempt in range(3):
+            pr = self._pr(pull_number)
+            # GitHub may still report the previous PR head after the branch ref
+            # has caught up. Retry only that known value, never a different head
+            # or a mismatched target, and never repeat either write.
+            if (previous_head is not None and previous_head != sha
+                    and pr.get("head", {}).get("sha") == previous_head):
+                self._verify_pr(pr, pull_number, branch, previous_head,
+                                base=base, base_sha=base_sha)
+                if attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+            self._verify_pr(pr, pull_number, branch, sha, base=base, base_sha=base_sha)
+            break
         self._require(self._ref_sha(self._ref(base), base) == base_sha,
                       "wrong_base_sha", "Target branch moved during publication")
         self._evidence("published", {"repository": self.repository, "publisher_login": publisher,
