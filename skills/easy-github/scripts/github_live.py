@@ -8,6 +8,7 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -87,7 +88,7 @@ class GitHubReviewAdapter:
 
     def _run(self, args, *, input_text=None):
         try:
-            return self.runner(args, cwd=self.git_dir, input=input_text, text=True,
+            return self.runner(args, cwd=self.git_dir, input=input_text, text=True, encoding="utf-8",
                                capture_output=True, shell=False, check=False)
         except OSError as error:
             raise GitHubAdapterError("execution_failed", f"Could not execute {args[0]}") from error
@@ -308,6 +309,9 @@ class GitHubReviewAdapter:
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--git-dir", type=Path, required=True)

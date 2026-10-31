@@ -1,16 +1,20 @@
 {
   "name": "easy-github",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "files_sha256": {
     "LICENSE": "a2a4694a1b299cc2058d2136215a36e64ee531846f8dac275ce6f984c34a08cd",
-    "SKILL.md": "4b5f0065262028834e29bf1d92f1b5e049b7afc6b81354201c5522add71537a6",
-    "agents/openai.yaml": "95c2321520b47300f1c3126c34e90bdb2858995a24a4ab872740df68424f9414",
-    "references/coders.md": "b27dfd3045692efa7f5fbd19a49814e03ad9f49eb4fff52b49596ba15ffb1908",
-    "references/github.md": "cbaf50b96c06ecb3c049b2ea51ec085cd398e3886f2d5f5d1169c3274d9e9f47",
-    "references/workflow.md": "486268215deb1abfda9133b9cb701b17cadcae23bfb3be453742d8af4895a32e",
-    "scripts/coders.py": "81c86b6b26a7ba359780672caa0467c01293a91e1578c88627d3bdee40613a86",
-    "scripts/github_live.py": "8788dfc25cb9bc51c472b1b29e849a8270947e2207d9ad6ac0a7c432268a60a3",
-    "scripts/newgit.py": "5ab6ea7a68bbc768082c1fb48e7d73bc2d1318e8da83407274278cad50b3aae6"
+    "SKILL.md": "e9e1aa649720fa39a532651f158e8bbbd99e4d0cc1b4474599cc25be4842b7cc",
+    "agents/openai.yaml": "2b1a48eb514653fa8fee10aef691e8cd9497688ff8f761d79574fd0b367dddf7",
+    "references/coders.md": "cb1fd00af652c6cfad3c407cbbcc85660b837e8478c669f099692ed488147691",
+    "references/github.md": "6455e9768e868d1826fe65adb735d140c946730e355ea3eea7856a302fb3c693",
+    "references/workflow.md": "1cddb27639c26b617516b3cf3ea8a4ffccf5db883bd16de300ae2a8ef7eb334a",
+    "references/zh-CN/coders.md": "47877f7f57196a24777f22fa7fe2e6d68421474dc9184ab54d8564758a18f694",
+    "references/zh-CN/github.md": "88466d3e7967c282173e2d0e5849943f6bad89852e9f9f37649db07523996455",
+    "references/zh-CN/skill.md": "535a274db581ee6c2726fe9bf7c9f525ff298e7429e81583c3c752800bd979c1",
+    "references/zh-CN/workflow.md": "a13c5f2872948da8f29bd8559a74c91c95ca5c978967973c16ce0cbfdd0aced4",
+    "scripts/coders.py": "7f0a00d74888f865f176ef8b05d1632a4f5884c69b41969d10ce3b8240ba938b",
+    "scripts/github_live.py": "e9f78953c45c6bd0058c2242bae607c6b9a827b6643301b1e5a8226b6f5f843a",
+    "scripts/newgit.py": "e6ff5d6d4e0165fcf23e6ee69ef0b7048cc388ac1ffc55995f6b7d57bd5dc649"
   },
   "runtime_source": "Development sources live in prototype/; rebuild with scripts/package_skill.py."
 }

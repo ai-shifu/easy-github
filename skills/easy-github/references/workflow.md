@@ -1,90 +1,92 @@
-# 本地交付与审查
+# Local delivery and review
 
-以下 `<Skill目录>` 指包含 `SKILL.md` 的安装目录；使用绝对路径调用其 `scripts/`，不依赖当前工作目录。ID、attempt、SHA 和工作目录均取自程序实际返回。命令输出 JSON，退出码非 0 表示未完成。
+English | [简体中文](zh-CN/workflow.md) · [Skill instructions](../SKILL.md)
 
-## 初始化与恢复
+Below, `<skill-directory>` is the installation directory containing `SKILL.md`. Call its `scripts/` using absolute paths so commands do not depend on the current working directory. Use IDs, attempts, SHAs, and workspace paths returned by the program. Commands return JSON; a nonzero exit code means the operation did not complete.
 
-需要 Python 3、Git；当前状态锁使用 `fcntl`，支持 macOS/Linux。先确认用户指定的 Git 项目和当前 HEAD。初始化仅导入**已提交 HEAD**，不会带入未提交修改，也不会自动拉取远端。不要为初始化擅自提交、清理或覆盖原工作区。
+## Initialize and resume
 
-状态目录必须位于源仓库之外，且不放进 Skill 安装目录。新任务明确记录状态目录；继续任务先读已有 `status`，不要重复初始化：
+Python 3.11+ and Git are required. The state lock currently uses `fcntl`, supporting macOS/Linux. First confirm the user's chosen Git project and its current HEAD. Initialization imports **only the committed HEAD**: it does not include uncommitted changes or fetch remote updates. Do not commit, clean, or overwrite the original workspace just to initialize the state.
 
-```bash
-python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" init --source "<源仓库根目录>"
-python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" status
-```
-
-状态库是源项目的独立副本，团队版本是其中的 `refs/heads/prototype-team`。以后 `start` 使用这个版本，**不自动跟随源仓库或 GitHub 更新**。Skill 文件可以复制安装；运行状态包含绝对路径和 Git worktree 关联，不能直接移动整个状态目录或把它作为 Skill 的一部分分发。
-
-## 开始工作与固定交付
+Keep the state directory outside both the source repository and the Skill installation directory. Record its location for a new task. To resume, read the existing `status` instead of initializing again:
 
 ```bash
-python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" start --owner "<作者标签>" --tool "<实际工具标签>" --title "<工作意图>"
+python3 "<skill-directory>/scripts/newgit.py" --state "<state-directory>" init --source "<source-repository-root>"
+python3 "<skill-directory>/scripts/newgit.py" --state "<state-directory>" status
 ```
 
-将返回的 `workspace`、`base`、`id`、`attempt` 交给用户选择的编程工具。工作目录是独立、detached 的 Git worktree，用户无需手工创建分支。编程工具如何接手见 [coders.md](coders.md)。
+The state repository is an independent copy of the source project. Its team version is `refs/heads/prototype-team`. Subsequent `start` calls use that version; it **does not automatically follow changes in the source repository or GitHub**. Skill files can be copied for installation. Runtime state contains absolute paths and Git worktree associations, so do not move the entire state directory or distribute it as part of the Skill.
 
-交付前，确认该目录的 AI、编辑器和后台进程都已停止写入。程序锁只协调自身调用；`--handoff` 是调用者声明，不是停写命令。不能证明已交接时，不声称已固定可靠交付。
+## Start work and freeze a delivery
 
 ```bash
-python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" submit --work "<work ID>" --attempt <当前序号> --handoff --summary "<实际变化摘要>"
+python3 "<skill-directory>/scripts/newgit.py" --state "<state-directory>" start --owner "<author-label>" --tool "<actual-tool-label>" --title "<work-intent>"
 ```
 
-保存返回的完整 delivery JSON。程序固定新快照，不移动原工作目录的 HEAD 或 Git index；之后继续编辑不会改变已交付快照。再交付会形成新修订，旧修订不能沿用批准。`submit` 会包含工作目录内所有 Git 应纳入的文件，交付前核对变更范围，避免把运行日志、临时文件或凭据混入。
+Give the returned `workspace`, `base`, `id`, and `attempt` to the user's chosen coding tool. The workspace is an independent, detached Git worktree; the user does not need to create a branch manually. See [coders.md](coders.md) for the coding-tool handoff.
 
-## 审查与修复
+Before delivery, confirm that AI tools, editors, and background processes have all stopped writing to that directory. The program's lock only coordinates its own calls. `--handoff` is a declaration by the caller, not a command that stops writers. If the handoff cannot be verified, do not claim that a reliable delivery has been frozen.
 
 ```bash
-python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" review --delivery "<delivery ID>" --reviewer "<拟交给的审核者标签>"
+python3 "<skill-directory>/scripts/newgit.py" --state "<state-directory>" submit --work "<work-ID>" --attempt <current-attempt> --handoff --summary "<summary-of-actual-changes>"
 ```
 
-`reviewer` 必须不同于作者标签，但标签不认证身份。`review` 只是准备材料，`ready` 只表示有可检查的候选；不能说该人已经看过或批准。展示本次意图、实际差异、`candidate_sha`、`team_sha` 及已执行检查。
+Save the complete delivery JSON returned by the program. It freezes a new snapshot without moving the original workspace's HEAD or Git index. Later edits do not change that delivered snapshot. Submitting again creates a new revision; approval of the previous revision does not carry over. `submit` includes all files in the workspace that Git would include. Check the change scope before delivery to keep run logs, temporary files, and credentials out.
 
-若返回 `needs_update`，读取原因。当前程序对两边修改同一文件采取保守处理，即使 Git 可能自动合并，也会要求外部修订；没有实际 Git 冲突证据时，不把“同文件重叠”称为文本冲突。
+## Review and revise
 
 ```bash
-python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" update --delivery "<最新 delivery ID>"
+python3 "<skill-directory>/scripts/newgit.py" --state "<state-directory>" review --delivery "<delivery-ID>" --reviewer "<intended-reviewer-label>"
 ```
 
-`update` 保留原目录，返回新工作目录、新 `attempt` 和 `context_file`。上下文包含原交付与团队版本的差异；由外部编程工具在新基线上重建意图，程序不生成业务修复。只用新目录和新 attempt 交付，然后重新审查。开始更新后，旧 attempt 暂停收下。
+The `reviewer` must differ from the author's label, but labels do not authenticate identity. `review` only prepares material, and `ready` only means there is a candidate available for checking. Do not claim that the named person has reviewed or approved it. Present the intent, actual diff, `candidate_sha`, `team_sha`, and checks that have actually run.
 
-### 两份改动都尚未收下
-
-若 B 需要与未合并 A 组合，不先收下 A 来制造基线：
+If the result is `needs_update`, read the reason. The current program handles changes to the same file conservatively: it requires external revision even when Git might merge them automatically. Without actual Git conflict evidence, do not describe overlapping file changes as a textual conflict.
 
 ```bash
-python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" review --delivery "<B delivery ID>" --reviewer "<审核者标签>" --onto-delivery "<A delivery ID>"
-python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" update --delivery "<B 最新 delivery ID>" --onto-delivery "<A delivery ID>"
+python3 "<skill-directory>/scripts/newgit.py" --state "<state-directory>" update --delivery "<latest-delivery-ID>"
 ```
 
-第二条只在需要修复时运行。`team_sha` 仍是真实团队版本，`comparison_sha` 才是 A 的候选版本；`team_diff` 和 `comparison_diff` 不能混用。A 尚未纳入本地团队版本时，修复目录及新交付继承 `onto_delivery_id`，省略参数不会解除依赖；A 有新修订时，显式选择当前交付并重新修复，不能静默沿用旧 A。`preview_only=true` 的审查永远不能 `accept`。
+`update` retains the original directory and returns a new workspace, `attempt`, and `context_file`. The context includes the original delivery's diff and the team version's diff. An external coding tool rebuilds the intended change on the new base; the program does not generate business-code fixes. Submit only from the new directory and attempt, then review again. Once an update starts, the old attempt cannot be accepted.
 
-A 经独立审查、检查和人的确认在本地收下后，可以继续更新 B，无需指定新的依赖：
+### When neither change has been accepted
+
+If B needs to be combined with pending A, do not accept A just to establish a base:
 
 ```bash
-python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" update --delivery "<B 最新 delivery ID>"
+python3 "<skill-directory>/scripts/newgit.py" --state "<state-directory>" review --delivery "<B-delivery-ID>" --reviewer "<reviewer-label>" --onto-delivery "<A-delivery-ID>"
+python3 "<skill-directory>/scripts/newgit.py" --state "<state-directory>" update --delivery "<latest-B-delivery-ID>" --onto-delivery "<A-delivery-ID>"
 ```
 
-程序检查 A 的固定 SHA 是否已在当前团队版本的历史中。若已纳入，新目录基于**当前团队版本**，解除待纳入依赖及 `preview_only` 标记；即使 A 后来又产生未收下的新修订，也不会替换已纳入的旧版本。外部工具在新目录恢复 B 的意图，停写后重新 `submit`、`review`，检查新的具体候选，再由人确认是否收下。旧预览审查不会自动变成可收下审查，旧检查和批准也不能沿用。GitHub 上的合并不会自动更新这个独立的本地团队版本。
+Run the second command only when revision is needed. `team_sha` remains the actual team version; `comparison_sha` is A's candidate version. Do not confuse `team_diff` with `comparison_diff`. While A has not been included in the local team version, the repair workspace and new delivery inherit `onto_delivery_id`; omitting the option does not remove that dependency. If A has a newer revision, explicitly select the current delivery and revise again instead of silently reusing old A. A review with `preview_only=true` can never be accepted with `accept`.
 
-## 检查具体候选
-
-外部执行者取得 review 指定候选的独立 checkout，核对实际 SHA 后执行项目所需检查。只有实际执行后才能登记：
+Once A has been accepted locally after its own review, checks, and human confirmation, B can be updated without specifying another dependency:
 
 ```bash
-python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" check --review "<review ID>" --snapshot "<实际候选 SHA>" --name "<检查名称>" --status passed --detail "<实际命令、结果及证据位置>"
+python3 "<skill-directory>/scripts/newgit.py" --state "<state-directory>" update --delivery "<latest-B-delivery-ID>"
 ```
 
-失败时使用 `--status failed`，不掩盖失败。工作目录或旧交付上的结果不能登记给另一个候选。程序保存外部上报，无法证明检查真实发生；目前门槛为至少一项检查且全部登记检查通过，没有生产级必需检查清单。
+The program checks whether A's fixed SHA is already in the current team version's history. If it is, the new workspace uses the **current team version** as its base and drops the pending dependency and `preview_only` flag. A later, unaccepted revision of A does not replace the version already included. Have the external tool restore B's intent in the new workspace, stop writing, and run `submit` and `review` again. Check the new exact candidate, then obtain human confirmation before accepting it. An old preview review does not automatically become an acceptable review; its checks and approval do not carry over. A merge on GitHub does not automatically update this independent local team version.
 
-## 人确认后在本地收下
+## Check the exact candidate
 
-仅在用户已确认**这份 review 及其具体候选**、且授权仍有效时执行；已有有效确认不需重复索取。AI 建议、测试成功或笼统的继续工作指令不自动构成收下授权。
+An external executor obtains an independent checkout of the candidate named in the review, verifies the actual SHA, and runs the project's required checks. Record a check only after it has actually run:
 
 ```bash
-python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" accept --review "<review ID>" --reviewer "<该 review 的审核者标签>"
-python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" status
+python3 "<skill-directory>/scripts/newgit.py" --state "<state-directory>" check --review "<review-ID>" --snapshot "<actual-candidate-SHA>" --name "<check-name>" --status passed --detail "<actual-command-result-and-evidence-location>"
 ```
 
-此操作**只移动隔离状态库的团队版本**，不会更新源仓库或 GitHub，也不是合并 main。回读成功后才能报告本地已纳入。新版交付、更新中的 attempt、失败检查、团队版本变化或标签不匹配会阻止收下；重新准备审查和必要修复，不能反复强行写入或沿用旧批准。永远不要主动合并 main。
+Use `--status failed` for failures; do not hide them. Results from a workspace or an old delivery cannot be recorded against a different candidate. The program stores external reports and cannot prove that checks actually ran. The current gate requires at least one check and all recorded checks to pass; it has no production-grade list of mandatory checks.
 
-接受操作会先保存具体候选的意图记录。若进程中断，下一次持锁操作会核对 Git ref 与记录：已应用的版本补齐审查记录，尚未应用的意图清除后仍需显式重试。出现第三个版本或记录不匹配时会停止恢复，不覆盖现状；先查明原因。同一审核者对仍处于当前团队版本的已完成接受可以安全重试。
+## Accept locally after human confirmation
+
+Run this only when the user has confirmed **this review and its exact candidate**, and that authorization is still valid. Do not ask again for confirmation that remains valid. AI recommendations, passing tests, or a general instruction to continue do not automatically authorize acceptance.
+
+```bash
+python3 "<skill-directory>/scripts/newgit.py" --state "<state-directory>" accept --review "<review-ID>" --reviewer "<reviewer-label-from-this-review>"
+python3 "<skill-directory>/scripts/newgit.py" --state "<state-directory>" status
+```
+
+This operation **only advances the team version in the isolated state repository**. It does not update the source repository or GitHub and does not merge main. Report local inclusion only after successful readback. A newer delivery, an attempt being updated, failed checks, a changed team version, or mismatched labels blocks acceptance. Prepare a new review and any necessary revision instead of forcing repeated writes or reusing old approval. Never proactively merge main.
+
+Acceptance first saves an intent record for the exact candidate. If the process is interrupted, the next operation holding the lock reconciles the Git ref and that record. If the ref update was applied, it completes the review record. If it was not applied, it clears the intent and still requires an explicit retry. A third version or mismatched metadata stops recovery without overwriting the current state; investigate first. The same reviewer can safely retry a completed acceptance while its candidate remains the current team version.

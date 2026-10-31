@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -29,7 +30,17 @@ class PortableSkillTests(unittest.TestCase):
                 self.assertEqual(hashlib.sha256((skill / name).read_bytes()).hexdigest(), expected)
             self.assertEqual(result["files"], len(manifest["files_sha256"]) + 1)
 
-            source = root / "source project"
+            # Readers must be able to follow either language's documentation
+            # after installing the archive without the development checkout.
+            for document in skill.rglob("*.md"):
+                for target in re.findall(r"\[[^\]]*\]\(([^)]+)\)", document.read_text(encoding="utf-8")):
+                    if "://" in target or target.startswith("#"):
+                        continue
+                    linked = (document.parent / target.split("#", 1)[0]).resolve()
+                    self.assertIn(skill.resolve(), linked.parents, (document, target))
+                    self.assertTrue(linked.is_file(), (document, target))
+
+            source = root / "source project café 项目"
             source.mkdir()
             state = root / "working state"
             env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
@@ -58,8 +69,8 @@ class PortableSkillTests(unittest.TestCase):
             baseline = git("rev-parse", "HEAD")
             original = manage("init", "--source", str(source))
             self.assertEqual(original["team_sha"], baseline)
-            work = manage("start", "--owner", "alice", "--tool", "fixture",
-                          "--title", "Update price")
+            title = "Update price · 调价 · تحديث السعر"
+            work = manage("start", "--owner", "alice", "--tool", "fixture", "--title", title)
             (Path(work["workspace"]) / "price.py").write_text("price = 129\n")
             delivery = manage("submit", "--work", work["id"], "--attempt", "1",
                               "--handoff", "--summary", "Packaging fixture, not real AI")
@@ -75,6 +86,7 @@ class PortableSkillTests(unittest.TestCase):
                    "--name", "fixture-snapshot", "--status", "passed",
                    "--detail", "Read exact candidate price.py; value is 129")
             status = manage("status")
+            self.assertEqual(status["workings"][0]["title"], title)
             self.assertEqual(status["team_sha"], baseline)
             self.assertEqual(git("rev-parse", "main"), baseline)
             self.assertEqual((source / "price.py").read_text(), "price = 99\n")

@@ -10,6 +10,7 @@ import signal
 import time
 import re
 import selectors
+import sys
 
 
 def redactor():
@@ -49,10 +50,10 @@ def redactor():
 
 
 def review_snapshot(workspace):
-    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=workspace, text=True,
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=workspace, text=True, encoding="utf-8",
                           capture_output=True, check=True).stdout.strip()
     status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"],
-                            cwd=workspace, text=True, capture_output=True, check=True).stdout
+                            cwd=workspace, text=True, encoding="utf-8", capture_output=True, check=True).stdout
     return head, status
 
 
@@ -65,7 +66,7 @@ def copilot_mcp_names(config_path=None):
     if not config_path.exists():
         return []
     try:
-        config = json.loads(config_path.read_text())
+        config = json.loads(config_path.read_text(encoding="utf-8"))
         servers = config["mcpServers"]
         if not isinstance(servers, dict) or any(
                 not re.fullmatch(r"[A-Za-z0-9_-]+", name) for name in servers):
@@ -115,10 +116,10 @@ def run(tool, workspace, prompt_file, output, mode="edit", timeout=600):
     if initial_snapshot and initial_snapshot[1]:
         raise ValueError("Review requires a clean, fixed checkout")
     clean = redactor()
-    prompt = prompt_file.read_text()
+    prompt = prompt_file.read_text(encoding="utf-8")
     command = command_for(tool, workspace, output, mode)
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
-    (output / "prompt.txt").write_text(clean(prompt))
+    (output / "prompt.txt").write_text(clean(prompt), encoding="utf-8")
     child_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     if tool == "copilot":
         child_env.pop("COPILOT_ALLOW_ALL", None)
@@ -131,7 +132,7 @@ def run(tool, workspace, prompt_file, output, mode="edit", timeout=600):
                         success_scope="CLI completion only; requires independent business validation",
                         permissions="tool allowlist and native path checks; not an OS sandbox")
     manifest_path = output / "manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     started = time.monotonic()
     auth_failed = False
     auth_errors = []
@@ -161,7 +162,8 @@ def run(tool, workspace, prompt_file, output, mode="edit", timeout=600):
         destination.flush()
 
     stdout_path = output / ("stdout.txt" if tool == "copilot" else "events.jsonl")
-    with (stdout_path.open("w") as stdout, (output / "stderr.txt").open("w") as stderr,
+    with (stdout_path.open("w", encoding="utf-8") as stdout,
+          (output / "stderr.txt").open("w", encoding="utf-8") as stderr,
           selectors.DefaultSelector() as selector):
         process = subprocess.Popen(command, cwd=workspace, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, start_new_session=True,
@@ -199,7 +201,7 @@ def run(tool, workspace, prompt_file, output, mode="edit", timeout=600):
                 stream["pending"] = ""
 
         try:
-            manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+            manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
             pending_input = memoryview(prompt.encode("utf-8"))
             for pipe, destination, inspect in ((process.stdout, stdout, True), (process.stderr, stderr, False)):
                 os.set_blocking(pipe.fileno(), False)
@@ -269,14 +271,14 @@ def run(tool, workspace, prompt_file, output, mode="edit", timeout=600):
             except subprocess.TimeoutExpired:
                 manifest["failure_reason"] = "process_cleanup_failed"
     events = []
-    for line in ([] if tool == "copilot" else stdout_path.read_text().splitlines()):
+    for line in ([] if tool == "copilot" else stdout_path.read_text(encoding="utf-8").splitlines()):
         try:
             events.append(json.loads(line))
         except json.JSONDecodeError:
             continue
     if tool == "copilot":
-        final_text = stdout_path.read_text().strip()
-        (output / "final.txt").write_text(final_text + ("\n" if final_text else ""))
+        final_text = stdout_path.read_text(encoding="utf-8").strip()
+        (output / "final.txt").write_text(final_text + ("\n" if final_text else ""), encoding="utf-8")
         if auth_failed:
             manifest["failure_reason"] = "authentication_failed"
         successful = bool(final_text) and not auth_failed and not manifest.get("timed_out")
@@ -284,7 +286,7 @@ def run(tool, workspace, prompt_file, output, mode="edit", timeout=600):
             manifest["failure_reason"] = "missing_response"
     elif tool == "claude":
         result = next((e for e in reversed(events) if e.get("type") == "result"), {})
-        (output / "final.txt").write_text(result.get("result", ""))
+        (output / "final.txt").write_text(result.get("result", ""), encoding="utf-8")
         successful = result.get("subtype") == "success" and not result.get("is_error", True)
         manifest["session_id"] = result.get("session_id")
         manifest["permission_denials"] = result.get("permission_denials", [])
@@ -294,7 +296,7 @@ def run(tool, workspace, prompt_file, output, mode="edit", timeout=600):
         manifest["session_id"] = next((e.get("thread_id") for e in events if e.get("type") == "thread.started"), None)
         messages = [e["item"].get("text", "") for e in events
                     if e.get("type") == "item.completed" and e.get("item", {}).get("type") == "agent_message"]
-        (output / "final.txt").write_text(clean(messages[-1] if messages else ""))
+        (output / "final.txt").write_text(clean(messages[-1] if messages else ""), encoding="utf-8")
     if initial_snapshot is not None:
         manifest["review_workspace_unchanged"] = review_snapshot(workspace) == initial_snapshot
         if not manifest["review_workspace_unchanged"]:
@@ -304,11 +306,14 @@ def run(tool, workspace, prompt_file, output, mode="edit", timeout=600):
     manifest.update(exit_code=process.returncode, duration_seconds=round(time.monotonic() - started, 2),
                     status="completed" if process.returncode == 0 and successful else "failed",
                     event_count=len(events))
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return manifest
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tool", choices=["codex", "claude", "copilot"], required=True)
     parser.add_argument("--workspace", type=Path, required=True)

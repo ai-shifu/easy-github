@@ -128,6 +128,9 @@ def install(source=SOURCE, destination=None):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     destination = parser.add_mutually_exclusive_group()
     destination.add_argument("--target", choices=["codex", "claude"],
