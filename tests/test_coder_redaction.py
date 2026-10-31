@@ -22,9 +22,12 @@ class CredentialEvidenceTests(unittest.TestCase):
 
     def test_native_plain_text_credentials_never_reach_evidence(self):
         secrets = ["provider-key-from-native-config", "YmFzaWMtZml4dHVyZS1zZWNyZXQ=",
-                   "project-key-from-native-config", "sk-proj-fixture-only-1234567890"]
+                   "project-key-from-native-config", "sk-proj-fixture-only-1234567890",
+                   "json-key-from-native-config", "single-quoted-secret-from-config"]
         lines = ["x-api-key: " + secrets[0], "Authorization: Basic " + secrets[1],
-                 'apiKey="' + secrets[2] + '"', secrets[3]]
+                 'apiKey="' + secrets[2] + '"', secrets[3],
+                 'debug: {"apiKey": "' + secrets[4] + '"}',
+                 "{'x-api-key': '" + secrets[5] + "'}"]
         with tempfile.TemporaryDirectory(prefix="coder-private-evidence-") as directory:
             root = Path(directory)
             workspace = seed_project(root)

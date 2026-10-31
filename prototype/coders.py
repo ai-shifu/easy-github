@@ -20,13 +20,16 @@ def redactor():
     known = [v for k, v in os.environ.items()
              if sensitive_key(k) and len(v) >= 8]
     assignments = re.compile(
-        r'''(?P<key>\b[A-Za-z][A-Za-z0-9_-]*)(?P<sep>\s*[:=]\s*)'''
-        r'''(?P<value>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;]+)''')
+        r'''(?P<quote>["']?)(?P<key>\b[A-Za-z0-9_-]*(?:token|secret|password|api[-_]?key|authorization))'''
+        r'''(?P=quote)(?P<sep>\s*[:=]\s*)'''
+        r'''(?P<value>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;]+)''', re.I)
 
     def clean_assignment(match):
         if not sensitive_key(match["key"]):
             return match[0]
-        return match["key"] + match["sep"] + "[redacted]"
+        value_quote = match["value"][0] if match["value"][0] in "\"'" else ""
+        return (match["quote"] + match["key"] + match["quote"] + match["sep"]
+                + value_quote + "[redacted]" + value_quote)
 
     def clean(value):
         if isinstance(value, dict):
