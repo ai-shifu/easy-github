@@ -26,6 +26,9 @@ def publish_plan(repository, delivery, title, base="prototype-team", previous_he
         raise ContractError("Updating a PR requires its previous frozen head")
     branch = "newgit/" + delivery["work_id"]
     endpoint = f"/repos/{repository}/pulls"
+    metadata = {"title": title, "base": base,
+                "body": f"Work {delivery['work_id']}, revision {delivery['revision']}.\n"
+                        f"Frozen delivery: {delivery['sha']}\n"}
     steps = [{
         "operation": "git_push_with_lease",
         "repository": repository,
@@ -37,10 +40,11 @@ def publish_plan(repository, delivery, title, base="prototype-team", previous_he
     if pull_number is None:
         steps.append({
             "operation": "github_request", "method": "POST", "path": endpoint,
-            "body": {"title": title, "head": branch, "base": base, "draft": False,
-                     "body": f"Work {delivery['work_id']}, revision {delivery['revision']}.\n"
-                             f"Frozen delivery: {delivery['sha']}\n"},
+            "body": {**metadata, "head": branch, "draft": False},
         })
+    else:
+        steps.append({"operation": "github_request", "method": "PATCH",
+                      "path": endpoint + "/" + str(pull_number), "body": metadata})
     steps.append({
         "operation": "github_request", "method": "GET",
         "path": endpoint + "/" + (str(pull_number) if pull_number else "{created_number}"),
