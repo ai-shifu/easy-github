@@ -24,6 +24,8 @@ class GitHubReviewAdapter:
         self._require(isinstance(repository, str)
                       and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository),
                       "invalid_repository", "Expected an explicit owner/repository")
+        self._require(all(part not in {".", ".."} for part in repository.split("/")),
+                      "invalid_repository", "Repository identifiers cannot contain dot segments")
         name = repository.split("/", 1)[1]
         self._require(name.startswith("newgit-integration-")
                       and len(name) > len("newgit-integration-"),
@@ -92,7 +94,10 @@ class GitHubReviewAdapter:
 
     def _api(self, method, path, payload=None, *, allow_not_found=False):
         self._require(method in {"GET", "POST", "PATCH"}, "unsupported_method", "Unsupported API method")
-        self._require(path == "/user" or path.startswith(f"/repos/{self.repository}"),
+        prefix = f"/repos/{self.repository}"
+        self._require(isinstance(path, str)
+                      and (path == "/user" or path == prefix or path.startswith(prefix + "/"))
+                      and all(part not in {".", ".."} for part in path.split("/")),
                       "unexpected_endpoint", "API request escaped the selected repository")
         args = ["gh", "api", "--hostname", "github.com", "--method", method, path]
         if payload is not None:

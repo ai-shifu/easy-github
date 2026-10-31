@@ -133,6 +133,21 @@ class GitHubLiveTests(unittest.TestCase):
     def publish(self):
         return self.adapter.publish(self.delivery, "Coupon change", "Line one\n\nLine two\n", "prototype-team")
 
+    def test_repository_dot_segments_are_rejected_before_transport(self):
+        for owner in (".", ".."):
+            with self.subTest(owner=owner):
+                self.assert_error("invalid_repository", lambda: GitHubReviewAdapter(
+                    owner + "/newgit-integration-fixture", self.git_dir,
+                    self.root / "evidence", runner=self.transport))
+        self.assertEqual([], self.transport.calls)
+
+    def test_api_scope_requires_complete_repository_path_segment(self):
+        for path in ("/repos/" + REPOSITORY + "-other/pulls",
+                     "/repos/" + REPOSITORY + "/../other/pulls"):
+            with self.subTest(path=path):
+                self.assert_error("unexpected_endpoint", lambda: self.adapter._api("POST", path, {}))
+        self.assertEqual([], self.transport.calls)
+
     def assert_error(self, code, action):
         with self.assertRaises(GitHubAdapterError) as caught:
             action()
