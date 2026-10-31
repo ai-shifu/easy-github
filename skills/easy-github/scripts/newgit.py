@@ -48,7 +48,7 @@ class Prototype:
     def _git(self, *args, cwd=None, env=None, input=None):
         command = ["git"]
         command += ["-C", str(cwd)] if cwd else ["--git-dir", str(self.repo)]
-        result = subprocess.run(command + list(args), input=input, text=True,
+        result = subprocess.run(command + list(args), input=input, text=True, encoding="utf-8",
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 env={**os.environ, **(env or {})})
         if result.returncode:
@@ -58,7 +58,7 @@ class Prototype:
     @contextmanager
     def _locked(self, initializing=False):
         self.state.mkdir(parents=True, exist_ok=True)
-        with (self.state / "lock").open("a+") as lock:
+        with (self.state / "lock").open("a+", encoding="utf-8") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:
                 if initializing:
@@ -66,7 +66,7 @@ class Prototype:
                 else:
                     path = self.state / "state.json"
                     self._require(path.is_file(), "not_initialized", "State is not initialized")
-                    data = json.loads(path.read_text())
+                    data = json.loads(path.read_text(encoding="utf-8"))
                     self._recover_acceptance(data)
                     yield data
             finally:
@@ -76,7 +76,7 @@ class Prototype:
         path = path or self.state / "state.json"
         descriptor, name = tempfile.mkstemp(prefix="state-", suffix=".json", dir=path.parent)
         try:
-            with os.fdopen(descriptor, "w") as stream:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
                 json.dump(data, stream, ensure_ascii=False, indent=2)
                 stream.write("\n")
                 stream.flush()
@@ -423,6 +423,9 @@ class JsonArgumentParser(argparse.ArgumentParser):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = JsonArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path, required=True)
     commands = parser.add_subparsers(dest="command", required=True)
