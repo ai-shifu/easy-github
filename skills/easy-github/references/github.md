@@ -6,7 +6,7 @@
 
 ## 发布前
 
-- 从管理程序保留完整 delivery JSON，使用状态库返回的 `repo` 作为 `--git-dir`；不要手工伪造 SHA 或 work ID。
+- 从管理程序保留完整 delivery JSON，使用状态库返回的 `repo` 作为 `--git-dir`。发布前会核对同级 `state.json` 中的完整交付记录及 `repo.git` 的不可变交付 ref；不能用任意提交或手工修改的 JSON 代替已交付版本。
 - 远端目标 base 必须已存在，且 SHA 精确等于 `delivery.base`。基线建立是单独准备工作，不能靠合并 main 或绕过校验来完成。
 - 回读仓库、base/head、已有 PR、reviews 和 CI，避免重复创建或发送同一审查。GitHub 操作者取真实登录账户，不能把本地作者/审核者标签称为另一位真人。
 

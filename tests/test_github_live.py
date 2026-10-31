@@ -29,6 +29,7 @@ class FakeTransport:
         self.readback_review_sha = None
         self.fail_push = False
         self.user = {"login": "fixture-user", "id": 123}
+        self.delivery_refs = {}
 
     def result(self, args, value, code=0):
         text = value if isinstance(value, str) else json.dumps(value)
@@ -43,6 +44,9 @@ class FakeTransport:
     def __call__(self, args, **kwargs):
         self.calls.append((list(args), dict(kwargs)))
         if args[0] == "git":
+            if "show-ref" in args:
+                sha = self.delivery_refs.get(args[-1])
+                return self.result(args, (sha + "\n") if sha else "", 0 if sha else 1)
             if "cat-file" in args:
                 return self.result(args, "commit\n")
             if "merge-base" in args:
@@ -111,11 +115,20 @@ class GitHubLiveTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
+        self.git_dir = self.root / "state" / "repo.git"
+        self.git_dir.mkdir(parents=True)
         self.transport = FakeTransport()
-        self.adapter = GitHubReviewAdapter(REPOSITORY, self.root, self.root / "evidence",
+        self.adapter = GitHubReviewAdapter(REPOSITORY, self.git_dir, self.root / "evidence",
                                            runner=self.transport)
         self.delivery = {"id": "d-1", "work_id": "coupon", "revision": 1,
-                         "sha": FIRST, "base": BASE, "owner": "pretend-human"}
+                         "sha": FIRST, "base": BASE, "owner": "pretend-human", "attempt": 1}
+        self.records = {}
+        self.register(self.delivery)
+
+    def register(self, delivery):
+        self.records[delivery["id"]] = copy.deepcopy(delivery)
+        (self.git_dir.parent / "state.json").write_text(json.dumps({"deliveries": self.records}))
+        self.transport.delivery_refs["refs/prototype/deliveries/" + delivery["id"]] = delivery["sha"]
 
     def publish(self):
         return self.adapter.publish(self.delivery, "Coupon change", "Line one\n\nLine two\n", "prototype-team")
@@ -169,9 +182,87 @@ class GitHubLiveTests(unittest.TestCase):
         self.assert_error("wrong_base_sha", self.publish)
         self.assertEqual([], self.transport.pushes())
 
+    def test_tampered_delivery_fields_fail_before_any_transport_call(self):
+        for field, value in (("id", "d-unregistered"), ("sha", SECOND), ("base", STACK_BASE),
+                             ("work_id", "other-work"), ("revision", 2), ("attempt", 2),
+                             ("owner", "other-owner"), ("summary", "Added outside the handoff")):
+            with self.subTest(field=field):
+                altered = {**self.delivery, field: value}
+                self.assert_error("unregistered_delivery", lambda: self.adapter.publish(
+                    altered, "Title", "Body", "prototype-team"))
+                self.assertEqual([], self.transport.calls)
+
+    def test_missing_or_invalid_registry_fails_before_any_transport_call(self):
+        registry = self.git_dir.parent / "state.json"
+        for content in (None, "not-json", "[]", '{"deliveries": {}}'):
+            with self.subTest(content=content):
+                if content is None:
+                    registry.unlink()
+                else:
+                    registry.write_text(content)
+                self.assert_error("unregistered_delivery", self.publish)
+                self.assertEqual([], self.transport.calls)
+
+    def test_registry_cannot_be_reused_with_a_different_adjacent_git_directory(self):
+        other = self.git_dir.parent / "other.git"
+        other.mkdir()
+        adapter = GitHubReviewAdapter(REPOSITORY, other, self.root / "other-evidence",
+                                      runner=self.transport)
+        self.assert_error("unregistered_delivery", lambda: adapter.publish(
+            self.delivery, "Title", "Body", "prototype-team"))
+        self.assertEqual([], self.transport.calls)
+
+    def test_missing_or_changed_delivery_ref_fails_before_github_calls(self):
+        ref = "refs/prototype/deliveries/" + self.delivery["id"]
+        for sha in (None, SECOND):
+            with self.subTest(sha=sha):
+                self.transport.calls.clear()
+                if sha is None:
+                    self.transport.delivery_refs.pop(ref, None)
+                else:
+                    self.transport.delivery_refs[ref] = sha
+                self.assert_error("delivery_ref_mismatch", self.publish)
+                self.assertTrue(all(args[0] == "git" and "show-ref" in args
+                                    for args, _ in self.transport.calls))
+                self.assertEqual([], self.transport.pushes())
+
+    def test_changed_registry_and_input_still_require_original_immutable_ref(self):
+        altered = {**self.delivery, "sha": SECOND}
+        (self.git_dir.parent / "state.json").write_text(json.dumps({
+            "deliveries": {altered["id"]: altered}}))
+        self.assert_error("delivery_ref_mismatch", lambda: self.adapter.publish(
+            altered, "Title", "Body", "prototype-team"))
+        self.assertTrue(all(args[0] == "git" for args, _ in self.transport.calls))
+        self.assertEqual([], self.transport.pushes())
+
+    def test_manager_delivery_and_real_git_ref_can_be_published_with_fake_remote(self):
+        from prototype.newgit import Prototype
+        from scripts.demo_support import seed_project
+
+        source = seed_project(self.root)
+        manager = Prototype.initialize(source, self.root / "actual-state")
+        work = manager.start("alice", "offline-fixture", "Change price")
+        (Path(work["workspace"]) / "checkout.py").write_text(
+            "def checkout_total(coupon_discount=0):\n    return 129\n")
+        delivery = manager.submit(work["id"], work["attempt"], "Offline fixture", handoff=True)
+        self.transport.branches["prototype-team"] = delivery["base"]
+
+        def local_git_and_fake_remote(args, **kwargs):
+            if args[0] == "git" and "push" not in args:
+                return subprocess.run(args, **kwargs)
+            return self.transport(args, **kwargs)
+
+        adapter = GitHubReviewAdapter(REPOSITORY, manager.repo, self.root / "actual-evidence",
+                                      runner=local_git_and_fake_remote)
+        pr = adapter.publish(delivery, "Price", "Actual local handoff, fake remote", "prototype-team")
+        self.assertEqual(delivery["sha"], pr["head"]["sha"])
+        self.assertEqual(str(manager.repo), self.transport.pushes()[0][2])
+
     def test_update_uses_exact_lease_and_can_make_stacked_pr(self):
         self.publish()
-        replacement = {**self.delivery, "sha": SECOND, "base": STACK_BASE, "revision": 2}
+        replacement = {**self.delivery, "id": "d-2", "sha": SECOND, "base": STACK_BASE,
+                       "revision": 2, "attempt": 2}
+        self.register(replacement)
         pr = self.adapter.publish(replacement, "Updated", "New\nbody", "newgit/price",
                                   previous_head=FIRST, pull_number=7)
         self.assertIn("--force-with-lease=refs/heads/newgit/coupon:" + FIRST, self.transport.pushes()[-1])

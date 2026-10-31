@@ -160,12 +160,36 @@ class GitHubReviewAdapter:
                           "Pull request base changed from the frozen delivery baseline")
 
     def _verify_local_commit(self, sha, base_sha):
-        result = self._run(["git", "cat-file", "-t", sha])
+        result = self._run(["git", "--git-dir", str(self.git_dir), "cat-file", "-t", sha])
         self._require(result.returncode == 0 and result.stdout.strip() == "commit",
                       "missing_commit", "Frozen delivery is not a local commit")
-        result = self._run(["git", "merge-base", "--is-ancestor", base_sha, sha])
+        result = self._run(["git", "--git-dir", str(self.git_dir),
+                            "merge-base", "--is-ancestor", base_sha, sha])
         self._require(result.returncode == 0, "invalid_ancestry",
                       "Frozen baseline must be an ancestor of the delivered commit")
+
+    def _verify_registered_delivery(self, delivery):
+        identifier = delivery.get("id")
+        self._require(isinstance(identifier, str)
+                      and re.fullmatch(r"[A-Za-z0-9_-]+", identifier),
+                      "invalid_delivery", "Expected a frozen delivery identifier")
+        # The manager owns <state>/repo.git and the adjacent state.json. An
+        # arbitrary Git checkout plus caller-supplied JSON is not a handoff.
+        self._require(self.git_dir.name == "repo.git", "unregistered_delivery",
+                      "Publish requires the manager's state/repo.git directory")
+        try:
+            state = json.loads((self.git_dir.parent / "state.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise GitHubAdapterError("unregistered_delivery",
+                                     "Could not read the local delivery registry") from error
+        records = state.get("deliveries") if isinstance(state, dict) else None
+        record = records.get(identifier) if isinstance(records, dict) else None
+        self._require(isinstance(record, dict) and record == delivery,
+                      "unregistered_delivery", "Input must match the complete frozen delivery record")
+        result = self._run(["git", "--git-dir", str(self.git_dir), "show-ref", "--verify", "--hash",
+                            "refs/prototype/deliveries/" + identifier])
+        self._require(result.returncode == 0 and result.stdout.strip() == delivery["sha"],
+                      "delivery_ref_mismatch", "The immutable delivery ref does not match its record")
 
     def publish(self, delivery, title, body, base, previous_head=None, pull_number=None):
         self._require(isinstance(delivery, dict), "invalid_delivery", "Expected a delivery object")
@@ -183,6 +207,7 @@ class GitHubReviewAdapter:
         if previous_head is not None:
             self._sha(previous_head)
             self._number(pull_number)
+        self._verify_registered_delivery(delivery)
         self._verify_local_commit(sha, base_sha)
         publisher = self._context()
         remote_base = self._ref(base)
@@ -202,7 +227,7 @@ class GitHubReviewAdapter:
         lease = f"--force-with-lease={ref}:{previous_head or ''}"
         # Scope credential selection to this command and use the same gh account
         # recorded above. No token is read, printed, or written by this adapter.
-        push = self._run(["git", "-c", "credential.helper=", "-c",
+        push = self._run(["git", "--git-dir", str(self.git_dir), "-c", "credential.helper=", "-c",
                           "credential.helper=!gh auth git-credential", "push", "--porcelain", lease,
                           f"https://github.com/{self.repository}.git", f"{sha}:{ref}"])
         self._evidence("push", {"repository": self.repository, "publisher_login": publisher,
