@@ -149,6 +149,16 @@ print('Bearer '+os.environ['NEWGIT_TEST_SECRET'], file=sys.stderr)
                 with self.assertRaisesRegex(ValueError, "Cannot safely enumerate"):
                     copilot_mcp_names(config)
 
+    def test_invalid_config_does_not_claim_output_path_and_retry_succeeds(self):
+        output = self.root / "retry-output"
+        with patch("coders.copilot_mcp_names", side_effect=ValueError("Cannot safely enumerate")):
+            with self.assertRaisesRegex(ValueError, "Cannot safely enumerate"):
+                run("copilot", self.workspace, self.prompt, output)
+        self.assertFalse(output.exists())
+        with self.fake("import sys; sys.stdin.read(); print('Completed fixture')"):
+            result = run("copilot", self.workspace, self.prompt, output)
+        self.assertEqual(result["status"], "completed")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -99,10 +99,10 @@ def run(tool, workspace, prompt_file, output, mode="edit", timeout=600):
     if initial_snapshot and initial_snapshot[1]:
         raise ValueError("Review requires a clean, fixed checkout")
     clean = redactor()
-    output.mkdir(parents=True, exist_ok=False)
     prompt = prompt_file.read_text()
-    (output / "prompt.txt").write_text(clean(prompt))
     command = command_for(tool, workspace, output, mode)
+    output.mkdir(parents=True, exist_ok=False)
+    (output / "prompt.txt").write_text(clean(prompt))
     child_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     if tool == "copilot":
         child_env.pop("COPILOT_ALLOW_ALL", None)
