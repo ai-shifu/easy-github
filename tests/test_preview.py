@@ -5,13 +5,14 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "prototype"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from newgit import Prototype, PrototypeError
-from demo_support import COUPON, PRICE, git, seed_project
+from demo_support import COMBINED, COUPON, PRICE, attach_check, git, seed_project
 
 
 class PreviewTests(unittest.TestCase):
@@ -98,6 +99,83 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(git(self.p.repo, "show", review["candidate_sha"] + ":README.md"), "Preview documentation")
         self.assertNotIn("diff --git a/checkout.py", review["diff"])
         self.rejected("preview_only", self.p.accept, review["id"], "lin")
+        self.assert_team_unchanged()
+
+    def test_accepted_dependency_can_be_updated_reviewed_and_accepted(self):
+        preview_attempt, preview_delivery = self.repair()
+        old_review = self.p.review(preview_delivery["id"], "lin")
+        a_review = self.p.review(self.da["id"], "zhou")
+        self.assertEqual(attach_check(self.p, a_review, 129, 129)["status"], "passed")
+        self.p.accept(a_review["id"], "zhou")
+        # Acceptance of A does not turn an existing preview into approval of B.
+        self.rejected("preview_only", self.p.accept, old_review["id"], "lin")
+
+        update = self.p.prepare_update(preview_delivery["id"])
+        self.assertEqual(update["base"], a_review["candidate_sha"])
+        context = json.loads(Path(update["context_file"]).read_text())
+        work = next(w for w in self.p.status()["workings"] if w["id"] == self.b["id"])
+        for record in (update, context, work, work["attempts"][-1]):
+            self.assertNotIn("onto_delivery_id", record)
+            self.assertNotIn("preview_only", record)
+        self.assertTrue(work["attempts"][-2]["preview_only"])
+        self.assertEqual((Path(preview_attempt["workspace"]) / "checkout.py").read_text(),
+                         PRICE + "\n# Reconciled coupon fixture\n")
+        (Path(update["workspace"]) / "checkout.py").write_text(COMBINED)
+        delivery = self.p.submit(update["id"], update["attempt"], handoff=True)
+        review = self.p.review(delivery["id"], "lin")
+        for record in (delivery, review):
+            self.assertNotIn("onto_delivery_id", record)
+            self.assertNotIn("preview_only", record)
+        self.assertEqual(review["status"], "ready")
+        self.assertEqual(attach_check(self.p, review, 129, 109)["status"], "passed")
+        self.p.accept(review["id"], "lin")
+        self.assertEqual(self.p.status()["team_sha"], review["candidate_sha"])
+        self.assertEqual(git(self.p.repo, "show", self.p.TEAM_REF + ":checkout.py"), COMBINED.strip())
+        self.assertEqual(git(self.source, "rev-parse", "HEAD"), self.team)
+
+    def test_accepted_dependency_uses_current_team_despite_newer_pending_revision(self):
+        _, delivery = self.repair()
+        a_review = self.p.review(self.da["id"], "zhou")
+        attach_check(self.p, a_review, 129, 129)
+        self.p.accept(a_review["id"], "zhou")
+        _, documentation = self.delivery("third", "Accepted documentation\n", "README.md")
+        doc_review = self.p.review(documentation["id"], "lin")
+        attach_check(self.p, doc_review, 129, 129)
+        self.p.accept(doc_review["id"], "lin")
+        (Path(self.a["workspace"]) / "checkout.py").write_text(PRICE.replace("129", "199"))
+        newer = self.p.submit(self.a["id"], self.a["attempt"], handoff=True)
+
+        # A1 is an ancestor, not the tip, and A2 must not replace its accepted bytes.
+        update = self.p.prepare_update(delivery["id"])
+        self.assertEqual(update["base"], doc_review["candidate_sha"])
+        self.assertNotEqual(update["base"], newer["sha"])
+        self.assertNotIn("onto_delivery_id", update)
+        self.assertEqual((Path(update["workspace"]) / "checkout.py").read_text(), PRICE)
+        self.assertEqual((Path(update["workspace"]) / "README.md").read_text(), "Accepted documentation\n")
+
+    def test_accepted_dependency_does_not_bypass_self_dependency_guard(self):
+        review = self.p.review(self.da["id"], "zhou")
+        attach_check(self.p, review, 129, 129)
+        self.p.accept(review["id"], "zhou")
+        self.rejected("invalid_dependency", self.p.review, self.da["id"], "zhou", self.da["id"])
+        self.rejected("invalid_dependency", self.p.prepare_update, self.da["id"], self.da["id"])
+
+    def test_dependency_cycle_is_rejected(self):
+        _, delivery = self.repair()
+        self.rejected("invalid_dependency", self.p.prepare_update, self.da["id"], delivery["id"])
+        self.assert_team_unchanged()
+
+    def test_dependency_ancestry_git_failure_is_not_ignored(self):
+        original_git = self.p._git
+
+        def fail_ancestry(*args, **kwargs):
+            if args[0] == "merge-base":
+                raise PrototypeError("git_error", "Cannot read dependency object")
+            return original_git(*args, **kwargs)
+
+        with patch.object(self.p, "_git", side_effect=fail_ancestry):
+            self.rejected("git_error", self.p.prepare_update, self.db["id"], self.da["id"])
+        self.assertEqual(next(w for w in self.p.status()["workings"] if w["id"] == self.b["id"])["attempt"], 1)
         self.assert_team_unchanged()
 
     def test_new_dependency_revision_rejects_implicit_reuse(self):

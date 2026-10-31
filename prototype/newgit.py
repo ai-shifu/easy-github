@@ -174,17 +174,24 @@ class Prototype:
         if onto_delivery_id is None:
             return None
         dependency = self._get(data, "deliveries", onto_delivery_id)
+        team, dependency_in_team = self._team(), False
         current, seen = dependency, {work_id}
         while current:
             self._require(current["work_id"] not in seen, "invalid_dependency",
                           "A preview cannot depend on its own work or a dependency cycle")
             seen.add(current["work_id"])
             other = self._get(data, "works", current["work_id"])
-            self._require(other["latest_delivery"] == current["id"], "superseded_dependency",
-                          "A preview dependency has a newer delivery; explicitly choose a current dependency")
+            included = self._git("merge-base", current["sha"], team) == current["sha"]
+            if current["id"] == onto_delivery_id:
+                dependency_in_team = included
+            # An accepted immutable revision stays part of team history even if
+            # its author starts a newer delivery. Pending revisions must be current.
+            if not included:
+                self._require(other["latest_delivery"] == current["id"], "superseded_dependency",
+                              "A preview dependency has a newer delivery; explicitly choose a current dependency")
             parent = current.get("onto_delivery_id")
             current = self._get(data, "deliveries", parent) if parent else None
-        return dependency
+        return None if dependency_in_team else dependency
 
     def _new_attempt(self, work, base, onto_delivery_id=None):
         number = work["attempt"] + 1
@@ -381,7 +388,7 @@ class Prototype:
             onto_delivery_id = onto_delivery_id or delivery.get("onto_delivery_id")
             dependency = self._dependency(data, work["id"], onto_delivery_id)
             comparison = dependency["sha"] if dependency else team
-            result = self._new_attempt(work, comparison, onto_delivery_id)
+            result = self._new_attempt(work, comparison, dependency["id"] if dependency else None)
             directory = self.state / "context"
             directory.mkdir(exist_ok=True)
             path = directory / (work["id"] + "-a" + str(work["attempt"]) + ".json")

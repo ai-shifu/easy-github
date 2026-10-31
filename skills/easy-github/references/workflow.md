@@ -56,7 +56,15 @@ python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" review --deli
 python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" update --delivery "<B 最新 delivery ID>" --onto-delivery "<A delivery ID>"
 ```
 
-第二条只在需要修复时运行。`team_sha` 仍是真实团队版本，`comparison_sha` 才是 A 的候选版本；`team_diff` 和 `comparison_diff` 不能混用。修复目录及新交付继承 `onto_delivery_id`，省略参数不会解除依赖。A 有新修订时，显式选择当前交付并重新修复，不能静默沿用旧 A。`preview_only=true` 的审查永远不能 `accept`。
+第二条只在需要修复时运行。`team_sha` 仍是真实团队版本，`comparison_sha` 才是 A 的候选版本；`team_diff` 和 `comparison_diff` 不能混用。A 尚未纳入本地团队版本时，修复目录及新交付继承 `onto_delivery_id`，省略参数不会解除依赖；A 有新修订时，显式选择当前交付并重新修复，不能静默沿用旧 A。`preview_only=true` 的审查永远不能 `accept`。
+
+A 经独立审查、检查和人的确认在本地收下后，可以继续更新 B，无需指定新的依赖：
+
+```bash
+python3 "<Skill目录>/scripts/newgit.py" --state "<状态目录>" update --delivery "<B 最新 delivery ID>"
+```
+
+程序检查 A 的固定 SHA 是否已在当前团队版本的历史中。若已纳入，新目录基于**当前团队版本**，解除待纳入依赖及 `preview_only` 标记；即使 A 后来又产生未收下的新修订，也不会替换已纳入的旧版本。外部工具在新目录恢复 B 的意图，停写后重新 `submit`、`review`，检查新的具体候选，再由人确认是否收下。旧预览审查不会自动变成可收下审查，旧检查和批准也不能沿用。GitHub 上的合并不会自动更新这个独立的本地团队版本。
 
 ## 检查具体候选
 
