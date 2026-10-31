@@ -249,8 +249,20 @@ class GitHubReviewAdapter:
             pull_number = self._number(created.get("number"))
         else:
             self._api("PATCH", f"{endpoint}/{pull_number}", {"title": title, "body": body, "base": base})
-        pr = self._pr(pull_number)
-        self._verify_pr(pr, pull_number, branch, sha, base=base, base_sha=base_sha)
+        for attempt in range(3):
+            pr = self._pr(pull_number)
+            # GitHub may still report the previous PR head after the branch ref
+            # has caught up. Retry only that known value, never a different head
+            # or a mismatched target, and never repeat either write.
+            if (previous_head is not None and previous_head != sha
+                    and pr.get("head", {}).get("sha") == previous_head):
+                self._verify_pr(pr, pull_number, branch, previous_head,
+                                base=base, base_sha=base_sha)
+                if attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+            self._verify_pr(pr, pull_number, branch, sha, base=base, base_sha=base_sha)
+            break
         self._require(self._ref_sha(self._ref(base), base) == base_sha,
                       "wrong_base_sha", "Target branch moved during publication")
         self._evidence("published", {"repository": self.repository, "publisher_login": publisher,

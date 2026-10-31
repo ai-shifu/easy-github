@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from prototype.github_live import GitHubAdapterError, GitHubReviewAdapter
 
@@ -26,6 +27,7 @@ class FakeTransport:
         self.pull = None
         self.review_result = None
         self.readback_head = None
+        self.pr_readback_heads = []
         self.readback_review_sha = None
         self.fail_push = False
         self.user = {"login": "fixture-user", "id": 123}
@@ -90,7 +92,10 @@ class FakeTransport:
             self.pull.update({key: payload[key] for key in ("title", "body")})
             return self.result(args, self.pr())
         if method == "GET" and path == prefix + "/pulls/7":
-            return self.result(args, self.pr())
+            result = self.pr()
+            if self.pr_readback_heads:
+                result["head"]["sha"] = self.pr_readback_heads.pop(0)
+            return self.result(args, result)
         if method == "POST" and path == prefix + "/pulls/7/reviews":
             self.review_result = {"id": 99, "state": "COMMENTED", "commit_id": payload["commit_id"],
                                   "body": payload["body"], "user": self.user}
@@ -291,6 +296,52 @@ class GitHubLiveTests(unittest.TestCase):
         self.assert_error("wrong_head", lambda: self.adapter.publish(
             self.delivery, "Title", "Body", "prototype-team", previous_head=FIRST, pull_number=7))
         self.assertEqual(count, len(self.transport.pushes()))
+
+    def test_update_retries_previous_pr_head_until_new_head_is_visible(self):
+        self.publish()
+        replacement = {**self.delivery, "id": "d-2", "sha": SECOND, "revision": 2}
+        self.register(replacement)
+        # The first GET is the preflight; only the GETs after PATCH may retry.
+        self.transport.pr_readback_heads = [FIRST, FIRST, SECOND]
+        self.transport.calls.clear()
+        with patch("prototype.github_live.time.sleep") as sleep:
+            pr = self.adapter.publish(replacement, "Updated", "Body", "prototype-team",
+                                      previous_head=FIRST, pull_number=7)
+        self.assertEqual(SECOND, pr["head"]["sha"])
+        sleep.assert_called_once_with(0.5)
+        self.assertEqual([], self.transport.pr_readback_heads)
+        self.assertEqual(1, len(self.transport.pushes()))
+        self.assertEqual(1, len(self.transport.writes()))
+
+    def test_update_stops_after_bounded_reads_of_previous_pr_head(self):
+        self.publish()
+        replacement = {**self.delivery, "id": "d-2", "sha": SECOND, "revision": 2}
+        self.register(replacement)
+        self.transport.pr_readback_heads = [FIRST, FIRST, FIRST, FIRST, SECOND]
+        self.transport.calls.clear()
+        with patch("prototype.github_live.time.sleep") as sleep:
+            self.assert_error("wrong_head", lambda: self.adapter.publish(
+                replacement, "Updated", "Body", "prototype-team",
+                previous_head=FIRST, pull_number=7))
+        self.assertEqual(2, sleep.call_count)
+        self.assertEqual([SECOND], self.transport.pr_readback_heads)
+        self.assertEqual(1, len(self.transport.pushes()))
+        self.assertEqual(1, len(self.transport.writes()))
+
+    def test_update_rejects_third_pr_head_without_retry(self):
+        self.publish()
+        replacement = {**self.delivery, "id": "d-2", "sha": SECOND, "revision": 2}
+        self.register(replacement)
+        self.transport.pr_readback_heads = [FIRST, STACK_BASE, SECOND]
+        self.transport.calls.clear()
+        with patch("prototype.github_live.time.sleep") as sleep:
+            self.assert_error("wrong_head", lambda: self.adapter.publish(
+                replacement, "Updated", "Body", "prototype-team",
+                previous_head=FIRST, pull_number=7))
+        sleep.assert_not_called()
+        self.assertEqual([SECOND], self.transport.pr_readback_heads)
+        self.assertEqual(1, len(self.transport.pushes()))
+        self.assertEqual(1, len(self.transport.writes()))
 
     def test_final_pr_readback_must_match_published_head(self):
         self.transport.readback_head = SECOND
