@@ -1,0 +1,40 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run offline tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Build the portable Skill
+        run: python3 scripts/package_skill.py
+      - name: Verify generated files and license are current
+        run: |
+          git diff --exit-code -- skills/easy-github
+          cmp LICENSE skills/easy-github/LICENSE
+      - name: Verify installation without touching personal Skills
+        run: |
+          python3 scripts/install_skill.py --dest "$RUNNER_TEMP/easy-github"
+          python3 scripts/install_skill.py --dest "$RUNNER_TEMP/easy-github"

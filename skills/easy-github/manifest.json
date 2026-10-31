@@ -1,0 +1,16 @@
+{
+  "name": "easy-github",
+  "version": "0.1.2",
+  "files_sha256": {
+    "LICENSE": "a2a4694a1b299cc2058d2136215a36e64ee531846f8dac275ce6f984c34a08cd",
+    "SKILL.md": "4b5f0065262028834e29bf1d92f1b5e049b7afc6b81354201c5522add71537a6",
+    "agents/openai.yaml": "95c2321520b47300f1c3126c34e90bdb2858995a24a4ab872740df68424f9414",
+    "references/coders.md": "3828504011f5349fedf9d9a98727e426e944dbfcdc97e8e4756d7f6adddeff44",
+    "references/github.md": "b3ad6d3a8c76ff3ee2b2757238396a11f66c1a7fa2b08bcf40431ca53c4a6c38",
+    "references/workflow.md": "20f8396e41e58606ba3fb8987361f043171bfe0d8ad82193fe5a2a9eed1836b6",
+    "scripts/coders.py": "9d3f432863f12b40748368dfe3eca97f42f612f8de6f760650bc958caac1cda1",
+    "scripts/github_live.py": "4176e8017a2507b3354db8c02423908ecb0c5d7a1ceca946c179436b502211e7",
+    "scripts/newgit.py": "609621015f34ad17b7a2260612290c9fc19c64c5b1f9c47b2e93d2d385067bd5"
+  },
+  "runtime_source": "Development sources live in prototype/; rebuild with scripts/package_skill.py."
+}
